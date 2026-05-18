@@ -271,6 +271,54 @@ def aguardar_elemento_visivel(
     return False
 
 
+def verificar_elemento_ja_visivel(
+    coords: tuple,
+    template_path: str = None,
+    confidence: float  = 0.75,
+    raio: int          = 60,
+    tentativas: int    = 3,
+    poll: float        = 0.5,
+) -> bool:
+    """
+    Verificação RÁPIDA: o elemento já está visível agora?
+
+    Faz até 'tentativas' capturas com 'poll' segundos entre elas.
+    Retorna True imediatamente se encontrar, False se não encontrar.
+    Não espera — apenas verifica o estado atual da tela.
+    """
+    if template_path:
+        p = Path(template_path)
+        if p.exists():
+            try:
+                from PIL import Image as _PILImage
+                template_img = _PILImage.open(str(p))
+                tmpl_np = cv2.cvtColor(np.array(template_img), cv2.COLOR_RGB2GRAY)
+            except Exception:
+                return False
+
+            for _ in range(tentativas):
+                try:
+                    bx, by = coords
+                    margin = raio * 4
+                    region_x = max(0, bx - margin)
+                    region_y = max(0, by - margin)
+                    tela_np = _capture(region=(region_x, region_y, margin * 2, margin * 2))
+
+                    if tmpl_np.shape[0] >= tela_np.shape[0] or tmpl_np.shape[1] >= tela_np.shape[1]:
+                        tela_np = _capture()
+
+                    resultado = cv2.matchTemplate(tela_np, tmpl_np, cv2.TM_CCOEFF_NORMED)
+                    _, max_val, _, _ = cv2.minMaxLoc(resultado)
+                    if max_val >= confidence:
+                        logger.info(f"✔ Elemento já visível (score={max_val:.2f}).")
+                        return True
+                except Exception as e:
+                    logger.debug(f"Verificação rápida erro: {e}")
+                time.sleep(poll)
+
+    return False
+
+
 # Alias para compatibilidade
 aguardar_botao_export = aguardar_elemento_visivel
 

@@ -50,7 +50,7 @@ from .config import (
     WAIT_STABILITY_THRESHOLD, DOWNLOAD_TIMEOUT, SCREEN_WIDTH, SCREEN_HEIGHT,
     PAUSA_POS_BOOKMARK, INICIO_DOWNLOAD_TIMEOUT
 )
-from .screen_utils import wait_for_screen_stable, safe_click, aguardar_elemento_visivel
+from .screen_utils import wait_for_screen_stable, safe_click, aguardar_elemento_visivel, verificar_elemento_ja_visivel
 from .download_watcher import DownloadSession, get_download_dir
 from .coordinates import Coords
 
@@ -405,21 +405,41 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
 
-        # Aguarda o botão de export aparecer.
-        # O template confirma VISIBILIDADE — o clique sempre usa a coordenada calibrada.
-        # A busca é restrita a uma região próxima da coordenada calibrada (evita falso positivo).
-        visivel = aguardar_elemento_visivel(
+        # --- Dois caminhos antes de clicar ---
+        #
+        # Condição 1: Botão JÁ visível antes do filtro atualizar
+        #   → aguarda dados da tabela atualizarem + estabilizarem → clica
+        #
+        # Condição 2: Botão ainda NÃO visível
+        #   → aguarda aparecer (até 60s) → clica quando aparecer
+        #
+        # Em ambos os casos, clica na coordenada calibrada do coordinates.py.
+
+        ja_visivel = verificar_elemento_ja_visivel(
             coords        = coords_export,
             template_path = _template_export,
-            timeout       = 60,
-            poll          = 0.5,
             confidence    = 0.75,
-            raio          = 60        # busca só em ±60px ao redor da coordenada calibrada
+            raio          = 60,
+            tentativas    = 4,
         )
-        if not visivel:
-            logger.warning(f"⚠ Botão não confirmado pelo template — tentando clicar mesmo assim.")
+
+        if ja_visivel:
+            logger.info(
+                "Botão export já visível — aguardando dados do filtro atualizarem..."
+            )
+            pausa(PAUSA_POS_BOOKMARK)   # reutiliza o mesmo tempo configurável do config.py
+            aguardar_tela_estavel()
+            logger.info("✔ Dados atualizados. Pronto para clicar.")
         else:
-            logger.info(f"✔ Botão confirmado como visível. Clicando em coordenada calibrada {coords_export}.")
+            logger.info("Botão export não visível — aguardando aparecer...")
+            aguardar_elemento_visivel(
+                coords        = coords_export,
+                template_path = _template_export,
+                timeout       = 60,
+                poll          = 0.5,
+                confidence    = 0.75,
+                raio          = 60,
+            )
 
         with DownloadSession(
             bookmark=bookmark,
