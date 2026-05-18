@@ -319,6 +319,81 @@ def verificar_elemento_ja_visivel(
     return False
 
 
+def verificar_pixel_visivel(
+    coords: tuple,
+    raio: int          = 15,
+    brightness_max: int = 210,
+    tentativas: int    = 3,
+    poll: float        = 0.3,
+) -> bool:
+    """
+    Verificação por pixel: existe algo visível (não-fundo) nas coordenadas?
+
+    Captura uma pequena área ao redor de 'coords' e calcula o brilho médio.
+    - Brilho baixo (< brightness_max): pixel escuro = ícone/botão presente ✅
+    - Brilho alto (>= brightness_max): pixel claro = fundo vazio ❌
+
+    Muito mais confiável que template matching para detectar ícones escuros
+    sobre fundo claro (como os botões do QlikView).
+
+    Args:
+        coords:         (x, y) centro da área a verificar.
+        raio:           Raio da área capturada em pixels.
+        brightness_max: Limiar de brilho — abaixo = elemento visível.
+        tentativas:     Número de capturas para confirmar.
+        poll:           Intervalo entre tentativas em segundos.
+    """
+    x, y = coords
+    regiao = (x - raio, y - raio, raio * 2, raio * 2)
+
+    for t in range(tentativas):
+        try:
+            frame  = _capture(region=regiao)
+            brilho = float(frame.mean())
+            logger.debug(f"Brilho em {coords}: {brilho:.1f} (max={brightness_max})")
+            if brilho < brightness_max:
+                logger.info(f"✔ Elemento detectado em {coords} (brilho={brilho:.1f}).")
+                return True
+        except Exception as e:
+            logger.debug(f"Erro na verificação por pixel: {e}")
+        if t < tentativas - 1:
+            time.sleep(poll)
+
+    return False
+
+
+def aguardar_elemento_por_pixel(
+    coords: tuple,
+    raio: int           = 15,
+    brightness_max: int = 210,
+    timeout: float      = 60,
+    poll: float         = 0.5,
+) -> bool:
+    """
+    Aguarda até que um elemento apareça nas coordenadas (verificação por pixel).
+
+    Fica em loop verificando o brilho da região até encontrar pixels escuros
+    (indicando que o ícone/botão apareceu) ou até o timeout ser atingido.
+
+    Returns:
+        True se o elemento apareceu, False se timeout atingido.
+    """
+    logger.info(
+        f"Aguardando elemento aparecer em {coords} "
+        f"(brilho < {brightness_max}, timeout={timeout}s)..."
+    )
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        if verificar_pixel_visivel(coords, raio=raio,
+                                   brightness_max=brightness_max, tentativas=1):
+            return True
+        time.sleep(poll)
+
+    logger.warning(f"⚠ Elemento não detectado em {coords} após {timeout}s.")
+    return False
+
+
 # Alias para compatibilidade
 aguardar_botao_export = aguardar_elemento_visivel
 

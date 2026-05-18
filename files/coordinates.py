@@ -14,6 +14,15 @@
 class Coords:
 
     # -------------------------------------------------------------------------
+    # Tela de login (https://login.mtrix.com.br)
+    # ← CALIBRAR com a página de login aberta no Chrome em tela cheia
+    # -------------------------------------------------------------------------
+    LOGIN_CAMPO_USUARIO = (1300, 223)   # ← CALIBRAR: campo de usuário
+    LOGIN_CAMPO_SENHA   = (1300, 301)   # ← CALIBRAR: campo de senha
+    LOGIN_BOTAO_ENTRAR  = (1300, 420)   # ← CALIBRAR: botão "Entrar"
+    LOGIN_AMBIENTE      = (1089, 223)   # ← CALIBRAR: item "VESTACY EH - CENSOR"
+
+    # -------------------------------------------------------------------------
     # Centro da janela do QlikView (para dar foco inicial)
     # -------------------------------------------------------------------------
     QLIKVIEW_CENTER = (1280, 720)

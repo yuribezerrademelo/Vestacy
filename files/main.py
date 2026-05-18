@@ -21,8 +21,7 @@
 #   python run.py
 #
 # DEPENDÊNCIAS:
-#   pip install playwright pyautogui opencv-python pillow python-dotenv pytesseract
-#   playwright install chromium
+#   pip install pyautogui opencv-python pillow python-dotenv pytesseract pyperclip mss
 # =============================================================================
 
 import time
@@ -30,6 +29,7 @@ import logging
 import sys
 import ctypes
 import ctypes.wintypes
+import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -37,12 +37,11 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 _FILES_DIR = Path(__file__).parent          # Automação/files/
 _BASE_DIR  = _FILES_DIR.parent              # Automação/
-# (sys.path não é necessário com importações relativas)
 
 import numpy as np
 import cv2
 import pyautogui
-from playwright.sync_api import sync_playwright
+import pyperclip
 
 from .config import (
     USERNAME, PASSWORD, LOGIN_URL, AMBIENTE_NOME,
@@ -50,8 +49,8 @@ from .config import (
     WAIT_STABILITY_THRESHOLD, DOWNLOAD_TIMEOUT, SCREEN_WIDTH, SCREEN_HEIGHT,
     PAUSA_POS_BOOKMARK, INICIO_DOWNLOAD_TIMEOUT
 )
-from .screen_utils import wait_for_screen_stable, safe_click, aguardar_elemento_visivel, verificar_elemento_ja_visivel
-from .download_watcher import DownloadSession, get_download_dir
+from .screen_utils import wait_for_screen_stable, safe_click, verificar_pixel_visivel, aguardar_elemento_por_pixel
+from .download_watcher import DownloadSession, get_download_dir, renomear_arquivo
 from .coordinates import Coords
 
 # ---------------------------------------------------------------------------
@@ -168,24 +167,48 @@ def _dialogo_press_here_visivel() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Etapas 1 & 2: Login via Playwright
+# Etapas 1 & 2: Abrir Chrome real e fazer login via PyAutoGUI
 # ---------------------------------------------------------------------------
 
-def fazer_login(page):
-    logger.info("=== ETAPA 1: Login ===")
-    page.goto(LOGIN_URL)
-    page.wait_for_load_state("networkidle")
+def _digitar(texto: str):
+    """Digita texto via clipboard - funciona com qualquer layout de teclado."""
+    pyperclip.copy(texto)
+    pyautogui.hotkey("ctrl", "v")
 
-    inputs = page.locator("input")
-    inputs.nth(0).fill(USERNAME)
-    inputs.nth(1).fill(PASSWORD)
-    page.locator("button, input[type='submit']").filter(has_text="Entrar").click()
-    page.wait_for_load_state("networkidle")
-    logger.info("Login realizado.")
 
-    logger.info("=== ETAPA 2: Selecionar ambiente ===")
-    page.wait_for_selector(f"text={AMBIENTE_NOME}", timeout=15000)
-    page.click(f"text={AMBIENTE_NOME}")
+def abrir_chrome_e_login():
+    """
+    Abre o Chrome instalado no PC (perfil real do usuario) e faz login.
+    O Chrome real usa a pasta Downloads configurada pelo usuario,
+    garantindo que os xlsx aparecam em C:\\Users\\...\\Downloads.
+    """
+    logger.info("=== ETAPA 1: Abrindo Chrome ===")
+
+    subprocess.Popen(
+        f'start chrome --start-maximized "{LOGIN_URL}"',
+        shell=True
+    )
+    pausa(4)
+    pyautogui.hotkey("win", "up")
+    pausa(1)
+    aguardar_tela_estavel()
+
+    logger.info("=== ETAPA 2: Login ===")
+    safe_click(*Coords.LOGIN_CAMPO_USUARIO)
+    pausa(0.5)
+    _digitar(USERNAME)
+
+    safe_click(*Coords.LOGIN_CAMPO_SENHA)
+    pausa(0.5)
+    _digitar(PASSWORD)
+
+    safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
+    logger.info("Credenciais enviadas - aguardando selecao de ambiente...")
+    aguardar_tela_estavel(timeout=20)
+    pausa(2)
+
+    logger.info("=== ETAPA 3: Selecionar ambiente ===")
+    safe_click(*Coords.LOGIN_AMBIENTE)
     logger.info(f"Ambiente '{AMBIENTE_NOME}' selecionado.")
     pausa(6)
 
@@ -399,46 +422,42 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
     """
     coords_export = BOTAO_EXPORT_POR_BLOCO[bloco]()
 
-    # Caminho do template do botão (opcional — ver screen_utils.aguardar_botao_export)
-    _template_export = str(_FILES_DIR / "templates" / "botao_export.png")
-
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
 
-        # --- Dois caminhos antes de clicar ---
+        # --- Dois caminhos por verificação de pixel ---
         #
-        # Condição 1: Botão JÁ visível antes do filtro atualizar
-        #   → aguarda dados da tabela atualizarem + estabilizarem → clica
+        # Condição 1: Botão JÁ visível (pixel escuro detectado nas coords)
+        #   → aguarda dados da tabela atualizarem → clica
         #
-        # Condição 2: Botão ainda NÃO visível
-        #   → aguarda aparecer (até 60s) → clica quando aparecer
+        # Condição 2: Botão ainda NÃO visível (fundo claro nas coords)
+        #   → aguarda pixel escuro aparecer (até 60s) → clica
         #
-        # Em ambos os casos, clica na coordenada calibrada do coordinates.py.
+        # Sem template matching — usa brilho do pixel diretamente.
+        # Botões do QlikView são ícones escuros sobre fundo claro.
 
-        ja_visivel = verificar_elemento_ja_visivel(
-            coords        = coords_export,
-            template_path = _template_export,
-            confidence    = 0.75,
-            raio          = 60,
-            tentativas    = 4,
+        ja_visivel = verificar_pixel_visivel(
+            coords         = coords_export,
+            raio           = 15,
+            brightness_max = 210,
+            tentativas     = 4,
         )
 
         if ja_visivel:
             logger.info(
                 "Botão export já visível — aguardando dados do filtro atualizarem..."
             )
-            pausa(PAUSA_POS_BOOKMARK)   # reutiliza o mesmo tempo configurável do config.py
+            pausa(PAUSA_POS_BOOKMARK)
             aguardar_tela_estavel()
             logger.info("✔ Dados atualizados. Pronto para clicar.")
         else:
-            logger.info("Botão export não visível — aguardando aparecer...")
-            aguardar_elemento_visivel(
-                coords        = coords_export,
-                template_path = _template_export,
-                timeout       = 60,
-                poll          = 0.5,
-                confidence    = 0.75,
-                raio          = 60,
+            logger.info("Botão export ainda não visível — aguardando aparecer...")
+            aguardar_elemento_por_pixel(
+                coords         = coords_export,
+                raio           = 15,
+                brightness_max = 210,
+                timeout        = 60,
+                poll           = 0.5,
             )
 
         with DownloadSession(
@@ -447,7 +466,6 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
             inicio_timeout=INICIO_DOWNLOAD_TIMEOUT
         ) as session:
 
-            # Clica SEMPRE na coordenada calibrada do coordinates.py
             safe_click(*coords_export)
             pausa(2)
 
@@ -548,47 +566,29 @@ def executar_downloads():
 
 def main():
     logger.info("╔══════════════════════════════════════╗")
-    logger.info("║   Automação Mtrix — Iniciando        ║")
+    logger.info("║   Automacao Mtrix - Iniciando        ║")
     logger.info("╚══════════════════════════════════════╝")
 
-    # Pasta de download do Windows — garante que o Chrome lançado pelo
-    # Playwright salva os arquivos na mesma pasta que monitoramos.
-    _download_dir = get_download_dir()
-    _download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Etapas 1, 2 e 3: abre Chrome real e faz login via PyAutoGUI
+        abrir_chrome_e_login()
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=False,
-            slow_mo=200,
-            args=[
-                "--start-maximized",
-                f"--download-default-directory={str(_download_dir)}",
-                "--no-first-run",
-                "--disable-default-apps",
-            ]
-        )
-        context = browser.new_context(no_viewport=True)
-        page    = context.new_page()
+        # Etapa 4: navega para Graficos | Relatorios no QlikView
+        focar_qlikview_e_navegar()
 
-        try:
-            fazer_login(page)
-            focar_qlikview_e_navegar()
-            arquivos = executar_downloads()
+        # Etapa 5: loop de 8 downloads
+        arquivos = executar_downloads()
 
-            logger.info("\n╔══════════════════════════════════════╗")
-            logger.info("║   Automação concluída com sucesso!   ║")
-            logger.info("╚══════════════════════════════════════╝")
-            logger.info(f"Total: {len(arquivos)} arquivo(s):")
-            for f in arquivos:
-                logger.info(f"  → {f.name}")
+        logger.info("\n╔══════════════════════════════════════╗")
+        logger.info("║   Automacao concluida com sucesso!   ║")
+        logger.info("╚══════════════════════════════════════╝")
+        logger.info(f"Total: {len(arquivos)} arquivo(s):")
+        for f in arquivos:
+            logger.info(f"  -> {f.name}")
 
-        except Exception as e:
-            logger.critical(f"Erro fatal: {e}", exc_info=True)
-            sys.exit(1)
-
-        finally:
-            pausa(2)
-            browser.close()
+    except Exception as e:
+        logger.critical(f"Erro fatal: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
