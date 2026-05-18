@@ -170,20 +170,30 @@ def aguardar_elemento_visivel(
                 deadline = time.time() + timeout
                 while time.time() < deadline:
                     try:
-                        # Usa mss para capturar tela (funciona com janelas GPU como QlikView)
-                        tela_np = _capture()
+                        # Captura APENAS a região próxima das coordenadas calibradas.
+                        # Isso evita falsos positivos em outras partes da tela.
+                        bx, by = coords
+                        margin = raio * 4  # área de busca = raio * 4 ao redor do ponto
+                        region_x = max(0, bx - margin)
+                        region_y = max(0, by - margin)
+                        region_w = margin * 2
+                        region_h = margin * 2
+                        tela_np = _capture(region=(region_x, region_y, region_w, region_h))
+
+                        # Template deve ser menor que a região capturada
+                        if tmpl_np.shape[0] >= tela_np.shape[0] or tmpl_np.shape[1] >= tela_np.shape[1]:
+                            # Região menor que o template — busca na tela inteira como fallback
+                            tela_np = _capture()
+
                         resultado = cv2.matchTemplate(tela_np, tmpl_np, cv2.TM_CCOEFF_NORMED)
-                        _, max_val, _, max_loc = cv2.minMaxLoc(resultado)
+                        _, max_val, _, _ = cv2.minMaxLoc(resultado)
                         if max_val >= confidence:
-                            th, tw = tmpl_np.shape
-                            centro_x = max_loc[0] + tw // 2
-                            centro_y = max_loc[1] + th // 2
                             logger.info(
-                                f"✔ Elemento encontrado em ({centro_x},{centro_y}) "
+                                f"✔ Elemento confirmado na região de {coords} "
                                 f"(score={max_val:.2f})."
                             )
-                            # Retorna as coordenadas exatas onde foi encontrado
-                            return (centro_x, centro_y)
+                            # Retorna True — o clique usa a coordenada calibrada, não a encontrada
+                            return True
                         logger.debug(f"Template score={max_val:.3f} < {confidence}")
                     except Exception as e:
                         logger.debug(f"Erro no template matching: {e}")

@@ -348,21 +348,22 @@ def aplicar_bookmark(nome_bookmark: str):
 def clicar_dupla_seta():
     logger.info("Aguardando dupla seta (») ficar visível...")
     _template_seta = str(_FILES_DIR / "templates" / "botao_dupla_seta.png")
-    coords_seta = aguardar_elemento_visivel(
+    visivel_seta = aguardar_elemento_visivel(
         coords        = Coords.BOTAO_DUPLA_SETA,
         template_path = _template_seta,
         timeout       = 60,
         poll          = 0.5,
-        confidence    = 0.70,
+        confidence    = 0.75,
+        raio          = 60        # busca só em ±60px ao redor da coordenada calibrada
     )
-    coords_click_seta = coords_seta if coords_seta else Coords.BOTAO_DUPLA_SETA
-    if not coords_seta:
-        logger.warning("⚠ Dupla seta não detectada via template — usando coordenada calibrada.")
+    if not visivel_seta:
+        logger.warning("⚠ Dupla seta não confirmada pelo template — tentando clicar mesmo assim.")
     else:
-        logger.info(f"Dupla seta localizada pelo template em {coords_click_seta}")
+        logger.info(f"✔ Dupla seta confirmada. Clicando em coordenada calibrada {Coords.BOTAO_DUPLA_SETA}.")
 
     logger.info("Clicando na dupla seta (») — transpondo coluna Ano/Mês...")
-    sucesso = clicar_e_validar(coords_click_seta, "Dupla seta (»)")
+    # Clica SEMPRE na coordenada calibrada do coordinates.py
+    sucesso = clicar_e_validar(Coords.BOTAO_DUPLA_SETA, "Dupla seta (»)")
     if not sucesso:
         raise RuntimeError("Falha ao clicar na dupla seta (»).")
     aguardar_tela_estavel()
@@ -404,23 +405,21 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
 
-        # Aguarda o botão de export aparecer e obtém as coordenadas exatas
-        coords_encontradas = aguardar_elemento_visivel(
+        # Aguarda o botão de export aparecer.
+        # O template confirma VISIBILIDADE — o clique sempre usa a coordenada calibrada.
+        # A busca é restrita a uma região próxima da coordenada calibrada (evita falso positivo).
+        visivel = aguardar_elemento_visivel(
             coords        = coords_export,
             template_path = _template_export,
             timeout       = 60,
             poll          = 0.5,
-            confidence    = 0.70,
-            raio          = 25
+            confidence    = 0.75,
+            raio          = 60        # busca só em ±60px ao redor da coordenada calibrada
         )
-        if coords_encontradas:
-            # Usa as coordenadas onde o template foi encontrado na tela
-            coords_click = coords_encontradas
-            logger.info(f"Botão localizado pelo template em {coords_click}")
+        if not visivel:
+            logger.warning(f"⚠ Botão não confirmado pelo template — tentando clicar mesmo assim.")
         else:
-            # Fallback: usa coordenada calibrada se template não encontrou
-            coords_click = coords_export
-            logger.warning(f"⚠ Template não detectou o botão — usando coordenada calibrada {coords_click}")
+            logger.info(f"✔ Botão confirmado como visível. Clicando em coordenada calibrada {coords_export}.")
 
         with DownloadSession(
             bookmark=bookmark,
@@ -428,7 +427,8 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
             inicio_timeout=INICIO_DOWNLOAD_TIMEOUT
         ) as session:
 
-            safe_click(*coords_click)
+            # Clica SEMPRE na coordenada calibrada do coordinates.py
+            safe_click(*coords_export)
             pausa(2)
 
             if _dialogo_press_here_visivel():
