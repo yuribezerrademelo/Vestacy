@@ -1,0 +1,7 @@
+playwright
+pyautogui
+opencv-python
+pillow
+python-dotenv
+numpy
+pytesseract
