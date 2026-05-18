@@ -110,31 +110,41 @@ def aguardar_elemento_visivel(
                 f"Aguardando elemento via template '{p.name}' "
                 f"(confiança={confidence}, timeout={timeout}s)..."
             )
-            deadline = time.time() + timeout
 
-            while time.time() < deadline:
-                try:
-                    location = pyautogui.locateOnScreen(
-                        str(p),
-                        confidence=confidence,
-                        grayscale=True
-                    )
-                    if location:
-                        centro = pyautogui.center(location)
-                        logger.info(f"✔ Elemento encontrado em {centro} (template matching).")
-                        return True
-                except pyautogui.ImageNotFoundException:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Erro no template matching: {e}")
+            # Pré-carrega o template via PIL para suportar caminhos com
+            # caracteres especiais (acentos, ç, etc.) no Windows.
+            # OpenCV / pyautogui não suportam caminhos não-ASCII diretamente.
+            try:
+                from PIL import Image as _PILImage
+                template_img = _PILImage.open(str(p))
+            except Exception as e:
+                logger.warning(f"⚠ Falha ao carregar template '{p.name}': {e} — usando fallback por região.")
+                template_img = None
 
-                time.sleep(poll)
+            if template_img is not None:
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    try:
+                        location = pyautogui.locateOnScreen(
+                            template_img,
+                            confidence=confidence,
+                            grayscale=True
+                        )
+                        if location:
+                            centro = pyautogui.center(location)
+                            logger.info(f"✔ Elemento encontrado em {centro} (template matching).")
+                            return True
+                    except pyautogui.ImageNotFoundException:
+                        pass
+                    except Exception as e:
+                        logger.debug(f"Erro no template matching: {e}")
+                    time.sleep(poll)
 
-            logger.warning(
-                f"⚠ Template '{p.name}' não encontrado na tela após {timeout}s. "
-                f"Verifique se o template está correto e se o botão está visível."
-            )
-            return False
+                logger.warning(
+                    f"⚠ Template '{p.name}' não encontrado na tela após {timeout}s. "
+                    f"Verifique se o template está correto e se o botão está visível."
+                )
+                return False
 
         else:
             # Template informado mas arquivo não existe — avisa e usa fallback

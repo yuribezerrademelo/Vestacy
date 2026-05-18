@@ -4,16 +4,21 @@
 #
 # ESTRUTURA DE PASTAS ESPERADA:
 #   Automação/
-#   ├── main.py               ← este arquivo
+#   ├── run.py                ← execute este
+#   ├── .env                  ← credenciais (não commitar)
 #   └── files/
+#       ├── main.py           ← este arquivo
 #       ├── config.py
 #       ├── coordinates.py
 #       ├── screen_utils.py
-#       └── download_watcher.py
+#       ├── download_watcher.py
+#       └── templates/
+#           ├── botao_export.png
+#           └── botao_dupla_seta.png
 #
 # EXECUÇÃO:
 #   cd "C:\Users\yurib\Downloads\Automação"
-#   python main.py
+#   python run.py
 #
 # DEPENDÊNCIAS:
 #   pip install playwright pyautogui opencv-python pillow python-dotenv pytesseract
@@ -432,11 +437,21 @@ def main():
     logger.info("║   Automação Mtrix — Iniciando        ║")
     logger.info("╚══════════════════════════════════════╝")
 
+    # Pasta de download do Windows — garante que o Chrome lançado pelo
+    # Playwright salva os arquivos na mesma pasta que monitoramos.
+    _download_dir = get_download_dir()
+    _download_dir.mkdir(parents=True, exist_ok=True)
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=False,
             slow_mo=200,
-            args=["--start-maximized"]
+            args=[
+                "--start-maximized",
+                f"--download-default-directory={str(_download_dir)}",
+                "--no-first-run",
+                "--disable-default-apps",
+            ]
         )
         context = browser.new_context(no_viewport=True)
         page    = context.new_page()
