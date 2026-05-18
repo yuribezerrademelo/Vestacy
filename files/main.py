@@ -244,19 +244,68 @@ BLOCOS = {
 _bloco_atual = None
 
 
+def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> bool:
+    """
+    Verifica se o bloco foi realmente selecionado checando se a região
+    ao redor do clique ficou mais ESCURA (azul/destacada).
+
+    Quando um bloco é selecionado no QlikView, o fundo muda de cinza
+    claro para azul escuro. Medimos o brilho médio da região antes e
+    depois — se escureceu significativamente, o bloco foi ativado.
+    """
+    x, y   = coords
+    regiao = (x - raio, y - raio, raio * 2, raio * 2)
+
+    # Captura estado atual (deve estar mais escuro/azul se ativo)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        frame = _capturar_tela()
+        # Recorta a região do bloco
+        rx, ry, rw, rh = regiao
+        recorte = frame[ry:ry+rh, rx:rx+rw]
+        brilho = float(recorte.mean())
+        logger.debug(f"Brilho do bloco em {coords}: {brilho:.1f}")
+
+        # Bloco ativo = região mais escura (azul) — brilho < 130 em escala 0-255
+        if brilho < 130:
+            logger.info(f"✔ Bloco confirmado como ativo (brilho={brilho:.1f}).")
+            return True
+        time.sleep(0.3)
+
+    logger.warning(f"⚠ Bloco não confirmado como ativo (brilho médio alto = região clara).")
+    return False
+
+
 def selecionar_bloco(nome_bloco: str):
     global _bloco_atual
     if _bloco_atual == nome_bloco:
         logger.info(f"Bloco '{nome_bloco}' já ativo — sem ação.")
         return
 
-    sucesso = clicar_e_validar(BLOCOS[nome_bloco], f"Bloco '{nome_bloco}'")
-    if not sucesso:
-        raise RuntimeError(f"Falha ao selecionar bloco '{nome_bloco}'.")
+    coords = BLOCOS[nome_bloco]
 
-    aguardar_tela_estavel()
-    _bloco_atual = nome_bloco
-    logger.info(f"✔ Bloco '{nome_bloco}' selecionado.")
+    for tentativa in range(1, 4):
+        logger.info(f"Selecionando bloco '{nome_bloco}' (tentativa {tentativa}/3)...")
+
+        # Pequena pausa antes de clicar para garantir que QlikView está pronto
+        pausa(1.0)
+        safe_click(*coords)
+        pausa(1.5)
+
+        # Verifica se o bloco ficou destacado (azul)
+        if _bloco_esta_ativo(coords):
+            aguardar_tela_estavel()
+            _bloco_atual = nome_bloco
+            logger.info(f"✔ Bloco '{nome_bloco}' selecionado e confirmado.")
+            return
+
+        logger.warning(f"⚠ Bloco '{nome_bloco}' não ficou ativo — tentando novamente...")
+        pausa(2.0)
+
+    raise RuntimeError(
+        f"Falha ao selecionar bloco '{nome_bloco}' após 3 tentativas.\n"
+        f"Verifique as coordenadas em coordinates.py e recalibre se necessário."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -299,18 +348,21 @@ def aplicar_bookmark(nome_bookmark: str):
 def clicar_dupla_seta():
     logger.info("Aguardando dupla seta (») ficar visível...")
     _template_seta = str(_FILES_DIR / "templates" / "botao_dupla_seta.png")
-    visivel = aguardar_elemento_visivel(
+    coords_seta = aguardar_elemento_visivel(
         coords        = Coords.BOTAO_DUPLA_SETA,
         template_path = _template_seta,
         timeout       = 60,
         poll          = 0.5,
         confidence    = 0.70,
     )
-    if not visivel:
-        logger.warning("⚠ Dupla seta não detectada via template — tentando clicar mesmo assim.")
+    coords_click_seta = coords_seta if coords_seta else Coords.BOTAO_DUPLA_SETA
+    if not coords_seta:
+        logger.warning("⚠ Dupla seta não detectada via template — usando coordenada calibrada.")
+    else:
+        logger.info(f"Dupla seta localizada pelo template em {coords_click_seta}")
 
     logger.info("Clicando na dupla seta (») — transpondo coluna Ano/Mês...")
-    sucesso = clicar_e_validar(Coords.BOTAO_DUPLA_SETA, "Dupla seta (»)")
+    sucesso = clicar_e_validar(coords_click_seta, "Dupla seta (»)")
     if not sucesso:
         raise RuntimeError("Falha ao clicar na dupla seta (»).")
     aguardar_tela_estavel()
@@ -352,8 +404,8 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
 
-        # Aguarda o botão de export aparecer ANTES de clicar
-        visivel = aguardar_elemento_visivel(
+        # Aguarda o botão de export aparecer e obtém as coordenadas exatas
+        coords_encontradas = aguardar_elemento_visivel(
             coords        = coords_export,
             template_path = _template_export,
             timeout       = 60,
@@ -361,8 +413,14 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
             confidence    = 0.70,
             raio          = 25
         )
-        if not visivel:
-            logger.warning("⚠ Botão de export não detectado — tentando clicar mesmo assim.")
+        if coords_encontradas:
+            # Usa as coordenadas onde o template foi encontrado na tela
+            coords_click = coords_encontradas
+            logger.info(f"Botão localizado pelo template em {coords_click}")
+        else:
+            # Fallback: usa coordenada calibrada se template não encontrou
+            coords_click = coords_export
+            logger.warning(f"⚠ Template não detectou o botão — usando coordenada calibrada {coords_click}")
 
         with DownloadSession(
             bookmark=bookmark,
@@ -370,8 +428,7 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
             inicio_timeout=INICIO_DOWNLOAD_TIMEOUT
         ) as session:
 
-            safe_click(*coords_export)
-            logger.info(f"Clicando em {coords_export}")
+            safe_click(*coords_click)
             pausa(2)
 
             if _dialogo_press_here_visivel():
@@ -398,32 +455,69 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
 # Loop principal
 # ---------------------------------------------------------------------------
 
+def _recuperar_navegacao():
+    """
+    Tenta recuperar o estado do QlikView sem fechar o navegador.
+    Navega de volta para Gráficos | Relatórios e reseta o bloco ativo.
+    Útil quando o QlikView pula uma etapa por lentidão.
+    """
+    global _bloco_atual
+    logger.warning("♻ Recuperando navegação — voltando para Gráficos | Relatórios...")
+    _bloco_atual = None  # força re-seleção do bloco no próximo ciclo
+    try:
+        safe_click(*Coords.QLIKVIEW_CENTER)
+        pausa(1)
+        sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Gráficos | Relatórios (recuperação)")
+        if sucesso:
+            aguardar_tela_estavel()
+            logger.info("✔ Navegação recuperada com sucesso.")
+            return True
+    except Exception as e:
+        logger.error(f"❌ Falha ao recuperar navegação: {e}")
+    return False
+
+
 def executar_downloads():
     logger.info("=== ETAPA 4: Iniciando loop de downloads ===")
-    arquivos = []
+    arquivos    = []
+    MAX_RECOVERY = 2  # tentativas de recuperação por download
 
     for i, (bloco, bookmark, clicar_seta) in enumerate(DOWNLOADS, start=1):
         logger.info(f"\n{'='*60}")
         logger.info(f"Download {i}/8 | Bloco: {bloco} | Bookmark: {bookmark}")
         logger.info(f"{'='*60}")
 
-        try:
-            selecionar_bloco(bloco)
-            aplicar_bookmark(bookmark)
+        for recovery in range(MAX_RECOVERY + 1):
+            try:
+                selecionar_bloco(bloco)
+                aplicar_bookmark(bookmark)
 
-            if clicar_seta:
-                clicar_dupla_seta()
+                if clicar_seta:
+                    clicar_dupla_seta()
 
-            arquivo = exportar_excel(bookmark, bloco)
-            arquivos.append(arquivo)
-            logger.info(f"✅ Download {i}/8 concluído: {arquivo.name}\n")
+                arquivo = exportar_excel(bookmark, bloco)
+                arquivos.append(arquivo)
+                logger.info(f"✅ Download {i}/8 concluído: {arquivo.name}\n")
+                break  # sucesso — vai para próximo download
 
-        except Exception as e:
-            logger.error(f"❌ Erro no download {i}/8 ({bookmark}): {e}")
-            screenshot = str(_BASE_DIR / f"erro_{i}_{bookmark.replace(' ', '_')}.png")
-            pyautogui.screenshot(screenshot)
-            logger.error(f"Screenshot salvo: {screenshot}")
-            raise
+            except Exception as e:
+                screenshot = str(_BASE_DIR / f"erro_{i}_{bookmark.replace(' ', '_')}.png")
+                pyautogui.screenshot(screenshot)
+
+                if recovery < MAX_RECOVERY:
+                    logger.warning(
+                        f"⚠ Falha no download {i}/8 ({bookmark}): {e}\n"
+                        f"   Tentando recuperar sem fechar o navegador "
+                        f"(tentativa {recovery + 1}/{MAX_RECOVERY})..."
+                    )
+                    if not _recuperar_navegacao():
+                        logger.error("Recuperação falhou — encerrando.")
+                        raise
+                    pausa(3)
+                else:
+                    logger.error(f"❌ Download {i}/8 falhou após {MAX_RECOVERY} recuperações: {e}")
+                    logger.error(f"Screenshot salvo: {screenshot}")
+                    raise
 
     return arquivos
 

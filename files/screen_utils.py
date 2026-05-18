@@ -21,9 +21,52 @@ pyautogui.PAUSE    = 0.3
 # ---------------------------------------------------------------------------
 
 def _capture(region=None) -> np.ndarray:
-    shot = pyautogui.screenshot(region=region)
-    arr  = np.array(shot)
-    return cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    """
+    Captura screenshot usando mss (preferido) ou pyautogui (fallback).
+
+    mss é mais confiável com janelas GPU-aceleradas como QlikView —
+    o pyautogui usa GDI e pode não capturar janelas renderizadas por GPU
+    em certos estados (ex: após abrir dropdown, antes de Alt+Tab).
+    """
+    try:
+        import mss
+        import mss.tools
+        with mss.mss() as sct:
+            if region:
+                x, y, w, h = region
+                monitor = {"left": x, "top": y, "width": w, "height": h}
+            else:
+                monitor = sct.monitors[0]  # tela inteira
+            shot = sct.grab(monitor)
+            arr  = np.array(shot)
+            # mss retorna BGRA — converte para RGB depois para cinza
+            arr_rgb = cv2.cvtColor(arr, cv2.COLOR_BGRA2RGB)
+            return cv2.cvtColor(arr_rgb, cv2.COLOR_RGB2GRAY)
+    except Exception:
+        # Fallback para pyautogui se mss não estiver disponível
+        shot = pyautogui.screenshot(region=region)
+        arr  = np.array(shot)
+        return cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+
+
+def _capture_pil(region=None):
+    """
+    Captura screenshot como imagem PIL — usada no template matching.
+    Também usa mss quando disponível.
+    """
+    try:
+        import mss
+        from PIL import Image
+        with mss.mss() as sct:
+            if region:
+                x, y, w, h = region
+                monitor = {"left": x, "top": y, "width": w, "height": h}
+            else:
+                monitor = sct.monitors[0]
+            shot = sct.grab(monitor)
+            return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    except Exception:
+        return pyautogui.screenshot(region=region)
 
 
 def _compare(img1: np.ndarray, img2: np.ndarray) -> float:
@@ -122,20 +165,26 @@ def aguardar_elemento_visivel(
                 template_img = None
 
             if template_img is not None:
+                # Converte template para numpy grayscale para matching manual via OpenCV
+                tmpl_np = cv2.cvtColor(np.array(template_img), cv2.COLOR_RGB2GRAY)
                 deadline = time.time() + timeout
                 while time.time() < deadline:
                     try:
-                        location = pyautogui.locateOnScreen(
-                            template_img,
-                            confidence=confidence,
-                            grayscale=True
-                        )
-                        if location:
-                            centro = pyautogui.center(location)
-                            logger.info(f"✔ Elemento encontrado em {centro} (template matching).")
-                            return True
-                    except pyautogui.ImageNotFoundException:
-                        pass
+                        # Usa mss para capturar tela (funciona com janelas GPU como QlikView)
+                        tela_np = _capture()
+                        resultado = cv2.matchTemplate(tela_np, tmpl_np, cv2.TM_CCOEFF_NORMED)
+                        _, max_val, _, max_loc = cv2.minMaxLoc(resultado)
+                        if max_val >= confidence:
+                            th, tw = tmpl_np.shape
+                            centro_x = max_loc[0] + tw // 2
+                            centro_y = max_loc[1] + th // 2
+                            logger.info(
+                                f"✔ Elemento encontrado em ({centro_x},{centro_y}) "
+                                f"(score={max_val:.2f})."
+                            )
+                            # Retorna as coordenadas exatas onde foi encontrado
+                            return (centro_x, centro_y)
+                        logger.debug(f"Template score={max_val:.3f} < {confidence}")
                     except Exception as e:
                         logger.debug(f"Erro no template matching: {e}")
                     time.sleep(poll)
@@ -144,7 +193,7 @@ def aguardar_elemento_visivel(
                     f"⚠ Template '{p.name}' não encontrado na tela após {timeout}s. "
                     f"Verifique se o template está correto e se o botão está visível."
                 )
-                return False
+                return None
 
         else:
             # Template informado mas arquivo não existe — avisa e usa fallback
@@ -153,6 +202,7 @@ def aguardar_elemento_visivel(
                 f"   Usando detecção por região como fallback.\n"
                 f"   Coloque o arquivo PNG em: {template_path}"
             )
+            # sem template — cai no fallback por região abaixo
 
     # --- Estratégia 2: mudança + estabilidade de região ---
     x, y   = coords
@@ -192,7 +242,8 @@ def aguardar_elemento_visivel(
                         f"✔ Região estável por {acumulado:.1f}s após mudança "
                         f"— elemento considerado visível."
                     )
-                    return True
+                    # Retorna as coordenadas do centro da região monitorada
+                    return coords
             else:
                 acumulado = 0.0  # ainda mudando, reinicia contagem
 
