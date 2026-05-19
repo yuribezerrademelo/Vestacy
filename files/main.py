@@ -44,7 +44,8 @@ from .config import (
 )
 from .screen_utils import (
     wait_for_screen_stable, safe_click,
-    verificar_pixel_visivel, aguardar_elemento_por_pixel
+    verificar_pixel_visivel, aguardar_elemento_por_pixel,
+    localizar_texto_e_clicar
 )
 from .download_watcher import (
     get_download_dir, snapshot_dir, _is_temp, renomear_arquivo
@@ -128,7 +129,7 @@ def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> 
 
 def _dialogo_press_here_visivel() -> bool:
     try:
-        import pytesseract # type: ignore
+        import pytesseract
         shot  = pyautogui.screenshot()
         texto = pytesseract.image_to_string(shot).lower()
         if "press here" in texto or "another window" in texto:
@@ -266,21 +267,39 @@ def selecionar_bloco(nome_bloco: str):
 # Aplicar bookmark
 # ---------------------------------------------------------------------------
 
+# Regiao aproximada onde o dropdown de bookmarks abre.
+# Cobre a area abaixo e ao redor do botao dropdown.
+# Ajuste se o dropdown aparecer fora dessa area.
+_REGIAO_DROPDOWN = (400, 80, 450, 500)   # (x, y, largura, altura)
+
+
 def aplicar_bookmark(nome_bookmark: str):
     logger.info(f"Aplicando bookmark: '{nome_bookmark}'")
 
+    # Abre o dropdown
     sucesso = clicar_e_validar(Coords.DROPDOWN_BOOKMARK, "Dropdown Bookmark")
     if not sucesso:
         raise RuntimeError("Falha ao abrir dropdown de bookmarks.")
-    pausa(1.5)
+    pausa(1.5)   # aguarda lista expandir
 
-    bookmark_coords = Coords.BOOKMARKS.get(nome_bookmark)
-    if bookmark_coords is None:
-        raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado em coordinates.py.")
+    # Tenta localizar o bookmark pelo nome via OCR (mais robusto que coordenadas fixas)
+    achou = localizar_texto_e_clicar(
+        texto   = nome_bookmark,
+        regiao  = _REGIAO_DROPDOWN,
+        timeout = 5.0,
+    )
 
-    sucesso = clicar_e_validar(bookmark_coords, f"Bookmark '{nome_bookmark}'")
-    if not sucesso:
-        raise RuntimeError(f"Falha ao selecionar bookmark '{nome_bookmark}'.")
+    if not achou:
+        # Fallback: usa coordenada calibrada se OCR falhar
+        logger.warning(
+            f"OCR nao encontrou '{nome_bookmark}' — usando coordenada calibrada como fallback."
+        )
+        bookmark_coords = Coords.BOOKMARKS.get(nome_bookmark)
+        if bookmark_coords is None:
+            raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado em coordinates.py.")
+        sucesso = clicar_e_validar(bookmark_coords, f"Bookmark '{nome_bookmark}'")
+        if not sucesso:
+            raise RuntimeError(f"Falha ao selecionar bookmark '{nome_bookmark}'.")
 
     aguardar_tela_estavel()
     logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados carregarem...")

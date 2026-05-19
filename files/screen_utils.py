@@ -454,3 +454,110 @@ def drag_and_drop(
     time.sleep(0.2)
     pyautogui.mouseUp()
     logger.info("Drag-and-drop concluído.")
+
+
+# ---------------------------------------------------------------------------
+# Localização e clique por texto via OCR
+# ---------------------------------------------------------------------------
+
+def localizar_texto_e_clicar(
+    texto: str,
+    regiao: tuple   = None,
+    timeout: float  = 5.0,
+    poll: float     = 0.5,
+    escala: int     = 2,
+    confianca: int  = 40,
+) -> bool:
+    """
+    Localiza um texto na tela via OCR (pytesseract) e clica nele.
+
+    Mais robusto que coordenadas fixas para listas de texto como dropdowns
+    do QlikView — funciona independente de scroll ou posição da janela.
+
+    Args:
+        texto:      Texto a localizar (busca por substring, case-insensitive).
+        regiao:     (x, y, w, h) área de busca. None = tela inteira.
+        timeout:    Tempo máximo de tentativas em segundos.
+        poll:       Intervalo entre tentativas.
+        escala:     Fator de ampliação da imagem para melhorar OCR (2 = 2x).
+        confianca:  Confiança mínima do OCR (0-100). Valores baixos são
+                    mais permissivos com fontes difíceis.
+
+    Returns:
+        True se encontrou e clicou, False caso contrário.
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        logger.warning("pytesseract não disponível — usando coordenada fixa como fallback.")
+        return False
+
+    offset_x = regiao[0] if regiao else 0
+    offset_y = regiao[1] if regiao else 0
+
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            # Captura a região desejada
+            if regiao:
+                shot = pyautogui.screenshot(region=regiao)
+            else:
+                shot = pyautogui.screenshot()
+
+            # Amplia a imagem para melhorar a precisão do OCR
+            shot_grande = shot.resize(
+                (shot.width * escala, shot.height * escala),
+                Image.LANCZOS
+            )
+
+            # Extrai dados de texto com posições
+            data = pytesseract.image_to_data(
+                shot_grande,
+                output_type=pytesseract.Output.DICT,
+                config="--psm 6"   # bloco uniforme de texto
+            )
+
+            # Reconstrói linhas agrupando palavras por (bloco, parágrafo, linha)
+            linhas: dict = {}
+            for i in range(len(data["text"])):
+                conf = int(data["conf"][i])
+                word = data["text"][i].strip()
+                if conf < confianca or not word:
+                    continue
+
+                key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+                if key not in linhas:
+                    linhas[key] = {
+                        "palavras": [],
+                        "left": [],
+                        "top":  [],
+                        "right":[],
+                        "bot":  [],
+                    }
+                linhas[key]["palavras"].append(word)
+                linhas[key]["left"].append(data["left"][i])
+                linhas[key]["top"].append(data["top"][i])
+                linhas[key]["right"].append(data["left"][i] + data["width"][i])
+                linhas[key]["bot"].append(data["top"][i] + data["height"][i])
+
+            # Procura o texto alvo entre as linhas reconstruídas
+            texto_lower = texto.lower()
+            for key, ld in linhas.items():
+                linha_str = " ".join(ld["palavras"])
+                if texto_lower in linha_str.lower():
+                    # Centro da linha (corrige escala e soma offset da região)
+                    cx = (min(ld["left"]) + max(ld["right"])) // 2 // escala + offset_x
+                    cy = (min(ld["top"])  + max(ld["bot"]))  // 2 // escala + offset_y
+                    logger.info(f"✔ Texto '{texto}' encontrado em ({cx}, {cy}) via OCR.")
+                    safe_click(cx, cy)
+                    return True
+
+        except Exception as e:
+            logger.debug(f"OCR erro: {e}")
+
+        time.sleep(poll)
+
+    logger.warning(f"⚠ Texto '{texto}' não encontrado na tela após {timeout}s.")
+    return False
