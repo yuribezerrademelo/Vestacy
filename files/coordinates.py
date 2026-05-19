@@ -20,7 +20,7 @@ class Coords:
     LOGIN_CAMPO_USUARIO = (1300, 223)   # ← CALIBRAR: campo de usuário
     LOGIN_CAMPO_SENHA   = (1300, 301)   # ← CALIBRAR: campo de senha
     LOGIN_BOTAO_ENTRAR  = (1300, 420)   # ← CALIBRAR: botão "Entrar"
-    LOGIN_AMBIENTE      = (1089, 223)   # ← CALIBRAR: item "VESTACY EH - CENSOR"
+    LOGIN_AMBIENTE      = (1089, 203)   # ← CALIBRAR: item "VESTACY EH - CENSOR"
 
     # -------------------------------------------------------------------------
     # Centro da janela do QlikView (para dar foco inicial)

@@ -53,7 +53,7 @@ DOWNLOAD_TIMEOUT = 1800  # 30 minutos
 
 # --- Timeout para DETECTAR O INÍCIO do download (segundos) ---
 # O QlikView pode ficar minutos com o diálogo aberto antes do arquivo aparecer.
-INICIO_DOWNLOAD_TIMEOUT = 180  # 3 minutos
+INICIO_DOWNLOAD_TIMEOUT = 45   # 45s — se o dialogo fechou sem download, retenta rapido
 
 # --- Pausa após aplicar bookmark (segundos) ---
 # Garante que os dados da tabela carregaram antes de tentar o export.

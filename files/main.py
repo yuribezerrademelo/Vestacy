@@ -51,7 +51,7 @@ from .screen_utils import (
     wait_for_screen_stable, safe_click,
     verificar_pixel_visivel, aguardar_elemento_por_pixel
 )
-from .download_watcher import DownloadSession, get_download_dir
+from .download_watcher import DownloadSession, get_download_dir, _is_temp, snapshot_dir
 from .coordinates import Coords
 
 # ---------------------------------------------------------------------------
@@ -184,16 +184,9 @@ def abrir_chrome_e_login():
     aguardar_tela_estavel()
 
     logger.info("=== ETAPA 2: Login ===")
-    safe_click(*Coords.LOGIN_CAMPO_USUARIO)
-    pausa(0.5)
-    _digitar(USERNAME)
-
-    safe_click(*Coords.LOGIN_CAMPO_SENHA)
-    pausa(0.5)
-    _digitar(PASSWORD)
-
+    # Credenciais já salvas no Chrome — apenas clica em Entrar
     safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
-    logger.info("Credenciais enviadas — aguardando seleção de ambiente...")
+    logger.info("Botão Entrar clicado — aguardando seleção de ambiente...")
     aguardar_tela_estavel(timeout=20)
     pausa(2)
 
@@ -410,6 +403,30 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
                 logger.warning("Diálogo 'press here' → clicando no link...")
                 safe_click(*Coords.LINK_PRESS_HERE)
                 pausa(3)
+            else:
+                # Monitora por até 20s se o diálogo fechar sem iniciar download.
+                # Quando o diálogo fecha, a tela muda significativamente.
+                # Se isso acontecer sem arquivo novo → retenta o clique.
+                ref_dialogo = _capturar_tela()
+                for _ in range(20):
+                    time.sleep(1)
+                    try:
+                        atuais  = set(session.download_dir.iterdir())
+                        tem_tmp = any(_is_temp(f) for f in atuais if f.is_file())
+                        novos   = {f for f in atuais if f.is_file() and not _is_temp(f)} - session._snapshot
+                        if tem_tmp or novos:
+                            logger.info("Download iniciado durante monitoramento do diálogo.")
+                            break
+                    except Exception:
+                        pass
+
+                    atual = _capturar_tela()
+                    if _similaridade(ref_dialogo, atual) < 0.96:
+                        logger.warning(
+                            "Diálogo fechou sem download detectado — "
+                            "retentando o clique no export..."
+                        )
+                        break
 
         if session.iniciou and session.arquivo_final:
             logger.info(f"✅ '{session.arquivo_final.name}' baixado e renomeado.")
