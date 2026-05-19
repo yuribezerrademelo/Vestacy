@@ -2,19 +2,17 @@
 # main.py — Orquestrador principal da automação Mtrix/QlikView
 # =============================================================================
 #
-# ESTRUTURA DE PASTAS ESPERADA:
-#   Automação/
-#   ├── run.py                ← execute este
-#   ├── .env                  ← credenciais (não commitar)
+# ESTRUTURA DE PASTAS:
+#   Vestacy/
+#   ├── run.py
+#   ├── .env
 #   └── files/
-#       ├── main.py           ← este arquivo
+#       ├── main.py
 #       ├── config.py
 #       ├── coordinates.py
 #       ├── screen_utils.py
 #       ├── download_watcher.py
 #       └── templates/
-#           ├── botao_export.png
-#           └── botao_dupla_seta.png
 #
 # EXECUÇÃO:
 #   cd "C:\Users\yurib\Downloads\Automação\Vestacy"
@@ -30,9 +28,6 @@ import sys
 import subprocess
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Caminhos base do projeto
-# ---------------------------------------------------------------------------
 _FILES_DIR = Path(__file__).parent   # Vestacy/files/
 _BASE_DIR  = _FILES_DIR.parent       # Vestacy/
 
@@ -51,7 +46,9 @@ from .screen_utils import (
     wait_for_screen_stable, safe_click,
     verificar_pixel_visivel, aguardar_elemento_por_pixel
 )
-from .download_watcher import DownloadSession, get_download_dir, _is_temp, snapshot_dir
+from .download_watcher import (
+    get_download_dir, snapshot_dir, _is_temp, renomear_arquivo
+)
 from .coordinates import Coords
 
 # ---------------------------------------------------------------------------
@@ -100,10 +97,6 @@ def aguardar_tela_estavel(timeout: float = None):
 
 
 def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> bool:
-    """
-    Clica em uma coordenada e valida que a tela MUDOU após o clique.
-    Repete até 'tentativas' vezes se a tela não reagir.
-    """
     for tentativa in range(1, tentativas + 1):
         logger.info(f"Clicando em '{descricao}' (tentativa {tentativa}/{tentativas})")
         antes = _capturar_tela()
@@ -122,24 +115,24 @@ def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> 
             logger.info(f"✔ '{descricao}' respondeu.")
             return True
 
-        logger.warning(f"⚠ '{descricao}' não reagiu, tentando novamente...")
+        logger.warning(f"⚠ '{descricao}' nao reagiu, tentando novamente...")
         pausa(1)
 
-    logger.error(f"❌ '{descricao}' não respondeu após {tentativas} tentativas.")
+    logger.error(f"❌ '{descricao}' nao respondeu apos {tentativas} tentativas.")
     return False
 
 
 # ---------------------------------------------------------------------------
-# Detecção do diálogo "press here"
+# Deteccao do dialogo "press here"
 # ---------------------------------------------------------------------------
 
 def _dialogo_press_here_visivel() -> bool:
     try:
-        import pytesseract
+        import pytesseract # type: ignore
         shot  = pyautogui.screenshot()
         texto = pytesseract.image_to_string(shot).lower()
         if "press here" in texto or "another window" in texto:
-            logger.info("Diálogo 'press here' detectado via OCR.")
+            logger.info("Dialogo 'press here' detectado via OCR.")
             return True
     except Exception:
         pass
@@ -152,7 +145,7 @@ def _dialogo_press_here_visivel() -> bool:
             resultado = cv2.matchTemplate(tela, template, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(resultado)
             if max_val >= 0.85:
-                logger.info(f"Diálogo 'press here' detectado via template (score={max_val:.2f}).")
+                logger.info(f"Dialogo 'press here' detectado via template (score={max_val:.2f}).")
                 return True
         except Exception as e:
             logger.debug(f"Template matching falhou: {e}")
@@ -161,20 +154,15 @@ def _dialogo_press_here_visivel() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Etapas 1, 2 e 3: Abrir Chrome real e fazer login via PyAutoGUI
+# Login via Chrome real
 # ---------------------------------------------------------------------------
 
 def _digitar(texto: str):
-    """Digita texto via clipboard — funciona com qualquer layout de teclado."""
     pyperclip.copy(texto)
     pyautogui.hotkey("ctrl", "v")
 
 
 def abrir_chrome_e_login():
-    """
-    Abre o Chrome instalado no PC (perfil real do usuário) e faz login.
-    O Chrome real usa a pasta Downloads configurada pelo usuário.
-    """
     logger.info("=== ETAPA 1: Abrindo Chrome ===")
     subprocess.Popen(
         f'start chrome --start-maximized "{LOGIN_URL}"',
@@ -184,9 +172,9 @@ def abrir_chrome_e_login():
     aguardar_tela_estavel()
 
     logger.info("=== ETAPA 2: Login ===")
-    # Credenciais já salvas no Chrome — apenas clica em Entrar
+    # Credenciais ja salvas no Chrome — apenas clica em Entrar
     safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
-    logger.info("Botão Entrar clicado — aguardando seleção de ambiente...")
+    logger.info("Botao Entrar clicado — aguardando selecao de ambiente...")
     aguardar_tela_estavel(timeout=20)
     pausa(2)
 
@@ -197,7 +185,7 @@ def abrir_chrome_e_login():
 
 
 # ---------------------------------------------------------------------------
-# Etapa 4: QlikView — focar janela e navegar
+# Navegacao no QlikView
 # ---------------------------------------------------------------------------
 
 def focar_qlikview_e_navegar():
@@ -207,14 +195,14 @@ def focar_qlikview_e_navegar():
     safe_click(*Coords.QLIKVIEW_CENTER)
     aguardar_tela_estavel()
 
-    sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Gráficos | Relatórios")
+    sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Graficos | Relatorios")
     if not sucesso:
-        raise RuntimeError("Não foi possível navegar para Gráficos | Relatórios.")
+        raise RuntimeError("Nao foi possivel navegar para Graficos | Relatorios.")
     aguardar_tela_estavel()
 
 
 # ---------------------------------------------------------------------------
-# Etapa 5: Selecionar bloco de filtro
+# Selecionar bloco de filtro
 # ---------------------------------------------------------------------------
 
 BLOCOS = {
@@ -228,10 +216,6 @@ _bloco_atual = None
 
 
 def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> bool:
-    """
-    Verifica se o bloco foi selecionado checando se a região ficou mais
-    escura (azul). Bloco ativo = brilho < 130.
-    """
     x, y   = coords
     regiao = (x - raio, y - raio, raio * 2, raio * 2)
     deadline = time.time() + timeout
@@ -248,14 +232,14 @@ def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> boo
             return True
         time.sleep(0.3)
 
-    logger.warning("⚠ Bloco não confirmado como ativo (brilho alto = região clara).")
+    logger.warning("⚠ Bloco nao confirmado como ativo.")
     return False
 
 
 def selecionar_bloco(nome_bloco: str):
     global _bloco_atual
     if _bloco_atual == nome_bloco:
-        logger.info(f"Bloco '{nome_bloco}' já ativo — sem ação.")
+        logger.info(f"Bloco '{nome_bloco}' ja ativo.")
         return
 
     coords = BLOCOS[nome_bloco]
@@ -272,17 +256,14 @@ def selecionar_bloco(nome_bloco: str):
             logger.info(f"✔ Bloco '{nome_bloco}' selecionado e confirmado.")
             return
 
-        logger.warning(f"⚠ Bloco '{nome_bloco}' não ficou ativo — tentando novamente...")
+        logger.warning(f"⚠ Bloco '{nome_bloco}' nao ficou ativo — tentando novamente...")
         pausa(2.0)
 
-    raise RuntimeError(
-        f"Falha ao selecionar bloco '{nome_bloco}' após 3 tentativas.\n"
-        f"Verifique as coordenadas em coordinates.py e recalibre se necessário."
-    )
+    raise RuntimeError(f"Falha ao selecionar bloco '{nome_bloco}' apos 3 tentativas.")
 
 
 # ---------------------------------------------------------------------------
-# Etapa 6: Aplicar bookmark
+# Aplicar bookmark
 # ---------------------------------------------------------------------------
 
 def aplicar_bookmark(nome_bookmark: str):
@@ -295,55 +276,51 @@ def aplicar_bookmark(nome_bookmark: str):
 
     bookmark_coords = Coords.BOOKMARKS.get(nome_bookmark)
     if bookmark_coords is None:
-        raise ValueError(f"Bookmark '{nome_bookmark}' não mapeado em coordinates.py.")
+        raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado em coordinates.py.")
 
     sucesso = clicar_e_validar(bookmark_coords, f"Bookmark '{nome_bookmark}'")
     if not sucesso:
         raise RuntimeError(f"Falha ao selecionar bookmark '{nome_bookmark}'.")
 
     aguardar_tela_estavel()
-    logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados da tabela carregarem...")
+    logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados carregarem...")
     pausa(PAUSA_POS_BOOKMARK)
     aguardar_tela_estavel()
     logger.info(f"✔ Bookmark '{nome_bookmark}' aplicado e tabela pronta.")
 
 
 # ---------------------------------------------------------------------------
-# Dupla seta (»)
+# Dupla seta
 # ---------------------------------------------------------------------------
 
 def clicar_dupla_seta():
-    """
-    Aguarda a dupla seta (») ficar visível por verificação de pixel
-    e clica na coordenada calibrada.
-    """
-    logger.info("Aguardando dupla seta (») ficar visível...")
-
-    visivel = verificar_pixel_visivel(
-        coords         = Coords.BOTAO_DUPLA_SETA,
-        raio           = 15,
-        brightness_max = 210,
-        tentativas     = 4,
-    )
+    logger.info("Aguardando dupla seta (») ficar visivel...")
+    visivel = verificar_pixel_visivel(Coords.BOTAO_DUPLA_SETA, raio=15, brightness_max=210, tentativas=4)
     if not visivel:
-        logger.info("Dupla seta não visível — aguardando aparecer...")
-        aguardar_elemento_por_pixel(
-            coords         = Coords.BOTAO_DUPLA_SETA,
-            raio           = 15,
-            brightness_max = 210,
-            timeout        = 60,
-        )
+        aguardar_elemento_por_pixel(Coords.BOTAO_DUPLA_SETA, raio=15, brightness_max=210, timeout=60)
 
-    logger.info("Clicando na dupla seta (») — transpondo coluna Ano/Mês...")
     sucesso = clicar_e_validar(Coords.BOTAO_DUPLA_SETA, "Dupla seta (»)")
     if not sucesso:
         raise RuntimeError("Falha ao clicar na dupla seta (»).")
     aguardar_tela_estavel()
-    logger.info("✔ Coluna Ano/Mês transposta para vertical.")
+    logger.info("✔ Coluna Ano/Mes transposta.")
 
 
 # ---------------------------------------------------------------------------
-# Export Excel com retry automático
+# Export Excel — 3 cenarios tratados explicitamente
+# ---------------------------------------------------------------------------
+#
+# Cenario 1 (normal):
+#   Caixa "Exporting..." aparece → processa → fecha → Chrome abre nova aba
+#   → download inicia → arquivo aparece em Downloads
+#
+# Cenario 2 (falha silenciosa):
+#   Caixa "Exporting..." aparece → fecha SEM abrir nova aba → sem download
+#   → deve clicar no botao de export novamente
+#
+# Cenario 3 (press here):
+#   Caixa mostra "content opened in another window / press here"
+#   → clicar no link "press here" → nova aba abre → download inicia
 # ---------------------------------------------------------------------------
 
 BOTAO_EXPORT_POR_BLOCO = {
@@ -353,117 +330,206 @@ BOTAO_EXPORT_POR_BLOCO = {
     "Agente de Distribuição": lambda: Coords.EXPORT_TEMPO_AGENTE,
 }
 
-MAX_TENTATIVAS_EXPORT = 3
+MAX_TENTATIVAS_EXPORT    = 3
+ESPERA_APOS_DIALOG_FECHAR = 30   # segundos aguardando arquivo apos dialogo fechar
+
+
+def _verificar_novo_arquivo(before: set, download_dir: Path):
+    """
+    Verifica se um novo arquivo definitivo apareceu na pasta de downloads.
+    Retorna o arquivo ou None.
+    Ignora arquivos temporarios (.crdownload, .tmp, etc).
+    """
+    try:
+        todos   = list(download_dir.iterdir()) if download_dir.exists() else []
+        tem_tmp = any(_is_temp(f) for f in todos if f.is_file())
+        novos   = {f for f in todos if f.is_file() and not _is_temp(f)} - before
+
+        if novos and not tem_tmp:
+            return max(novos, key=lambda f: f.stat().st_mtime)
+    except Exception:
+        pass
+    return None
+
+
+def _aguardar_arquivo_estavel(arquivo: Path, poll: float = 2.0, ciclos: int = 3) -> bool:
+    """
+    Aguarda o arquivo ter tamanho estavel por 'ciclos' verificacoes consecutivas.
+    Retorna True se estavel, False se nao.
+    """
+    tamanho_ant = -1
+    estavel_count = 0
+    for _ in range(ciclos + 5):
+        time.sleep(poll)
+        try:
+            tam = arquivo.stat().st_size
+            if tam > 0 and tam == tamanho_ant:
+                estavel_count += 1
+                if estavel_count >= ciclos:
+                    return True
+            else:
+                estavel_count = 0
+            tamanho_ant = tam
+        except Exception:
+            return False
+    return False
+
+
+def _monitorar_export(before: set, download_dir: Path) -> Path:
+    """
+    Monitora o resultado do clique no botao export e trata os 3 cenarios.
+
+    Retorna o Path do arquivo baixado, ou None se deve retentar.
+
+    Estado interno:
+      - dialog_fechou_em: quando o dialogo fechou (timestamp)
+      - press_here_clicado: se ja clicamos no link press here
+    """
+    ref_dialogo        = _capturar_tela()
+    dialog_fechou_em   = None
+    press_here_clicado = False
+
+    deadline = time.time() + DOWNLOAD_TIMEOUT
+
+    while time.time() < deadline:
+        time.sleep(1)
+
+        # --- 1. Verifica se novo arquivo ja apareceu ---
+        arquivo = _verificar_novo_arquivo(before, download_dir)
+        if arquivo:
+            logger.info(f"Arquivo novo detectado: {arquivo.name}")
+            if _aguardar_arquivo_estavel(arquivo):
+                logger.info(f"✅ Download completo: {arquivo.name} ({arquivo.stat().st_size:,} bytes)")
+                return arquivo
+            # Arquivo ainda nao estavel, continua aguardando
+            continue
+
+        # Verifica se ha arquivo temporario (download em progresso)
+        try:
+            todos   = list(download_dir.iterdir()) if download_dir.exists() else []
+            tem_tmp = any(_is_temp(f) for f in todos if f.is_file())
+            if tem_tmp:
+                logger.info("Download em progresso (arquivo temporario detectado)...")
+                continue
+        except Exception:
+            pass
+
+        # --- 2. Cenario 3: detecta dialogo "press here" ---
+        if not press_here_clicado and _dialogo_press_here_visivel():
+            logger.warning("Dialogo 'press here' → clicando no link...")
+            safe_click(*Coords.LINK_PRESS_HERE)
+            pausa(3)
+            press_here_clicado = True
+            ref_dialogo        = _capturar_tela()   # reinicia referencia
+            continue
+
+        # --- 3. Cenario 2: detecta dialogo fechando ---
+        if dialog_fechou_em is None:
+            atual = _capturar_tela()
+            sim   = _similaridade(ref_dialogo, atual)
+            if sim < 0.94:
+                dialog_fechou_em = time.time()
+                logger.info(f"Dialogo fechou (similaridade={sim:.3f}). "
+                            f"Aguardando arquivo por ate {ESPERA_APOS_DIALOG_FECHAR}s...")
+
+        # Se dialogo fechou e press here nao foi necessario:
+        # aguarda ESPERA_APOS_DIALOG_FECHAR segundos para o arquivo aparecer
+        if dialog_fechou_em and not press_here_clicado:
+            tempo_desde_fechou = time.time() - dialog_fechou_em
+
+            # Verifica se tem sinal de download (temp ou novo arquivo)
+            try:
+                todos   = list(download_dir.iterdir()) if download_dir.exists() else []
+                tem_tmp = any(_is_temp(f) for f in todos if f.is_file())
+                novos   = {f for f in todos if f.is_file() and not _is_temp(f)} - before
+                if tem_tmp or novos:
+                    # Ha sinal de download — continua aguardando normalmente
+                    continue
+            except Exception:
+                pass
+
+            if tempo_desde_fechou >= ESPERA_APOS_DIALOG_FECHAR:
+                # Cenario 2: dialogo fechou, nenhum download iniciado
+                logger.warning(
+                    f"Cenario 2: dialogo fechou ha {tempo_desde_fechou:.0f}s "
+                    f"sem download — vai retentar o clique no export."
+                )
+                return None
+
+    logger.warning("Timeout aguardando download.")
+    return None
 
 
 def exportar_excel(bookmark: str, bloco: str) -> Path:
     """
-    Exporta para Excel com retry automático e verificação de pixel.
-
-    Condição 1: Botão JÁ visível → aguarda dados atualizarem → clica
-    Condição 2: Botão NÃO visível → aguarda aparecer → clica
+    Exporta para Excel tratando os 3 cenarios do QlikView.
+    So avanca quando o arquivo estiver 100% baixado e renomeado.
     """
     coords_export = BOTAO_EXPORT_POR_BLOCO[bloco]()
+    download_dir  = get_download_dir()
 
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
 
+        # Verifica visibilidade do botao
         ja_visivel = verificar_pixel_visivel(
-            coords         = coords_export,
-            raio           = 15,
-            brightness_max = 210,
-            tentativas     = 4,
+            coords=coords_export, raio=15, brightness_max=210, tentativas=4
         )
-
         if ja_visivel:
-            logger.info("Botão export já visível — aguardando dados do filtro atualizarem...")
+            logger.info("Botao ja visivel — aguardando dados atualizarem...")
             pausa(PAUSA_POS_BOOKMARK)
             aguardar_tela_estavel()
-            logger.info("✔ Dados atualizados. Pronto para clicar.")
         else:
-            logger.info("Botão export ainda não visível — aguardando aparecer...")
+            logger.info("Aguardando botao aparecer...")
             aguardar_elemento_por_pixel(
-                coords         = coords_export,
-                raio           = 15,
-                brightness_max = 210,
-                timeout        = 60,
-                poll           = 0.5,
+                coords=coords_export, raio=15, brightness_max=210, timeout=60
             )
 
-        with DownloadSession(
-            bookmark=bookmark,
-            timeout=DOWNLOAD_TIMEOUT,
-            inicio_timeout=INICIO_DOWNLOAD_TIMEOUT
-        ) as session:
+        # Snapshot antes do clique
+        before = snapshot_dir(download_dir)
 
-            safe_click(*coords_export)
-            pausa(2)
+        # Clica no botao export
+        safe_click(*coords_export)
+        logger.info(f"Clique no export realizado em {coords_export}.")
+        pausa(2)   # aguarda dialogo aparecer
 
-            if _dialogo_press_here_visivel():
-                logger.warning("Diálogo 'press here' → clicando no link...")
-                safe_click(*Coords.LINK_PRESS_HERE)
-                pausa(3)
-            else:
-                # Monitora por até 20s se o diálogo fechar sem iniciar download.
-                # Quando o diálogo fecha, a tela muda significativamente.
-                # Se isso acontecer sem arquivo novo → retenta o clique.
-                ref_dialogo = _capturar_tela()
-                for _ in range(20):
-                    time.sleep(1)
-                    try:
-                        atuais  = set(session.download_dir.iterdir())
-                        tem_tmp = any(_is_temp(f) for f in atuais if f.is_file())
-                        novos   = {f for f in atuais if f.is_file() and not _is_temp(f)} - session._snapshot
-                        if tem_tmp or novos:
-                            logger.info("Download iniciado durante monitoramento do diálogo.")
-                            break
-                    except Exception:
-                        pass
+        # Monitora os 3 cenarios
+        arquivo = _monitorar_export(before, download_dir)
 
-                    atual = _capturar_tela()
-                    if _similaridade(ref_dialogo, atual) < 0.96:
-                        logger.warning(
-                            "Diálogo fechou sem download detectado — "
-                            "retentando o clique no export..."
-                        )
-                        break
-
-        if session.iniciou and session.arquivo_final:
-            logger.info(f"✅ '{session.arquivo_final.name}' baixado e renomeado.")
-            return session.arquivo_final
+        if arquivo:
+            final = renomear_arquivo(arquivo, bookmark)
+            logger.info(f"✅ '{final.name}' baixado e renomeado.")
+            return final
 
         logger.warning(
-            f"⚠ Download não iniciou na tentativa {tentativa}. "
-            f"{'Tentando novamente...' if tentativa < MAX_TENTATIVAS_EXPORT else 'Tentativas esgotadas.'}"
+            f"⚠ Tentativa {tentativa} sem sucesso. "
+            f"{'Retentando...' if tentativa < MAX_TENTATIVAS_EXPORT else 'Tentativas esgotadas.'}"
         )
         pausa(3)
 
     raise RuntimeError(
-        f"Download falhou após {MAX_TENTATIVAS_EXPORT} tentativas para '{bookmark}'."
+        f"Download falhou apos {MAX_TENTATIVAS_EXPORT} tentativas para '{bookmark}'."
     )
 
 
 # ---------------------------------------------------------------------------
-# Loop principal de downloads
+# Loop principal
 # ---------------------------------------------------------------------------
 
 def _recuperar_navegacao():
-    """Volta para Gráficos | Relatórios sem fechar o navegador."""
     global _bloco_atual
-    logger.warning("Recuperando navegacao — voltando para Graficos | Relatorios...")
+    logger.warning("Recuperando navegacao...")
     _bloco_atual = None
     try:
         safe_click(*Coords.QLIKVIEW_CENTER)
         pausa(1)
-        sucesso = clicar_e_validar(
-            Coords.ABA_GRAFICOS_RELATORIOS, "Graficos | Relatorios (recuperacao)"
-        )
+        sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Graficos | Relatorios (recuperacao)")
         if sucesso:
             aguardar_tela_estavel()
-            logger.info("✔ Navegacao recuperada com sucesso.")
+            logger.info("✔ Navegacao recuperada.")
             return True
     except Exception as e:
-        logger.error(f"❌ Falha ao recuperar navegacao: {e}")
+        logger.error(f"❌ Falha ao recuperar: {e}")
     return False
 
 
@@ -487,7 +553,7 @@ def executar_downloads():
 
                 arquivo = exportar_excel(bookmark, bloco)
                 arquivos.append(arquivo)
-                logger.info(f"✅ Download {i}/8 concluído: {arquivo.name}\n")
+                logger.info(f"✅ Download {i}/8 concluido: {arquivo.name}\n")
                 break
 
             except Exception as e:
@@ -504,7 +570,7 @@ def executar_downloads():
                         raise
                     pausa(3)
                 else:
-                    logger.error(f"❌ Download {i}/8 falhou após {MAX_RECOVERY} recuperações: {e}")
+                    logger.error(f"❌ Download {i}/8 falhou apos {MAX_RECOVERY} recuperacoes: {e}")
                     logger.error(f"Screenshot: {screenshot}")
                     raise
 
