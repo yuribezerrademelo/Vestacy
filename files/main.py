@@ -17,7 +17,7 @@
 #           └── botao_dupla_seta.png
 #
 # EXECUÇÃO:
-#   cd "C:\Users\yurib\Downloads\Automação"
+#   cd "C:\Users\yurib\Downloads\Automação\Vestacy"
 #   python run.py
 #
 # DEPENDÊNCIAS:
@@ -27,16 +27,14 @@
 import time
 import logging
 import sys
-import ctypes
-import ctypes.wintypes
 import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Caminhos base do projeto
 # ---------------------------------------------------------------------------
-_FILES_DIR = Path(__file__).parent          # Automação/files/
-_BASE_DIR  = _FILES_DIR.parent              # Automação/
+_FILES_DIR = Path(__file__).parent   # Vestacy/files/
+_BASE_DIR  = _FILES_DIR.parent       # Vestacy/
 
 import numpy as np
 import cv2
@@ -46,11 +44,14 @@ import pyperclip
 from .config import (
     USERNAME, PASSWORD, LOGIN_URL, AMBIENTE_NOME,
     DOWNLOADS, WAIT_STABILITY_TIMEOUT, WAIT_STABILITY_INTERVAL,
-    WAIT_STABILITY_THRESHOLD, DOWNLOAD_TIMEOUT, SCREEN_WIDTH, SCREEN_HEIGHT,
+    WAIT_STABILITY_THRESHOLD, DOWNLOAD_TIMEOUT,
     PAUSA_POS_BOOKMARK, INICIO_DOWNLOAD_TIMEOUT
 )
-from .screen_utils import wait_for_screen_stable, safe_click, verificar_pixel_visivel, aguardar_elemento_por_pixel
-from .download_watcher import DownloadSession, get_download_dir, renomear_arquivo
+from .screen_utils import (
+    wait_for_screen_stable, safe_click,
+    verificar_pixel_visivel, aguardar_elemento_por_pixel
+)
+from .download_watcher import DownloadSession, get_download_dir
 from .coordinates import Coords
 
 # ---------------------------------------------------------------------------
@@ -102,9 +103,6 @@ def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> 
     """
     Clica em uma coordenada e valida que a tela MUDOU após o clique.
     Repete até 'tentativas' vezes se a tela não reagir.
-
-    NÃO usar para o botão de export — o diálogo flutuante do QlikView
-    não altera o fundo, o que faria a validação falhar incorretamente.
     """
     for tentativa in range(1, tentativas + 1):
         logger.info(f"Clicando em '{descricao}' (tentativa {tentativa}/{tentativas})")
@@ -136,10 +134,6 @@ def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> 
 # ---------------------------------------------------------------------------
 
 def _dialogo_press_here_visivel() -> bool:
-    """
-    Detecta o diálogo 'opened in another window / press here'.
-    Tenta OCR primeiro, depois template matching como fallback.
-    """
     try:
         import pytesseract
         shot  = pyautogui.screenshot()
@@ -167,30 +161,26 @@ def _dialogo_press_here_visivel() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Etapas 1 & 2: Abrir Chrome real e fazer login via PyAutoGUI
+# Etapas 1, 2 e 3: Abrir Chrome real e fazer login via PyAutoGUI
 # ---------------------------------------------------------------------------
 
 def _digitar(texto: str):
-    """Digita texto via clipboard - funciona com qualquer layout de teclado."""
+    """Digita texto via clipboard — funciona com qualquer layout de teclado."""
     pyperclip.copy(texto)
     pyautogui.hotkey("ctrl", "v")
 
 
 def abrir_chrome_e_login():
     """
-    Abre o Chrome instalado no PC (perfil real do usuario) e faz login.
-    O Chrome real usa a pasta Downloads configurada pelo usuario,
-    garantindo que os xlsx aparecam em C:\\Users\\...\\Downloads.
+    Abre o Chrome instalado no PC (perfil real do usuário) e faz login.
+    O Chrome real usa a pasta Downloads configurada pelo usuário.
     """
     logger.info("=== ETAPA 1: Abrindo Chrome ===")
-
     subprocess.Popen(
         f'start chrome --start-maximized "{LOGIN_URL}"',
         shell=True
     )
     pausa(4)
-    pyautogui.hotkey("win", "up")
-    pausa(1)
     aguardar_tela_estavel()
 
     logger.info("=== ETAPA 2: Login ===")
@@ -203,7 +193,7 @@ def abrir_chrome_e_login():
     _digitar(PASSWORD)
 
     safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
-    logger.info("Credenciais enviadas - aguardando selecao de ambiente...")
+    logger.info("Credenciais enviadas — aguardando seleção de ambiente...")
     aguardar_tela_estavel(timeout=20)
     pausa(2)
 
@@ -214,35 +204,12 @@ def abrir_chrome_e_login():
 
 
 # ---------------------------------------------------------------------------
-# Etapa 3: QlikView — validar janela e navegar
+# Etapa 4: QlikView — focar janela e navegar
 # ---------------------------------------------------------------------------
 
-def _garantir_janela_maximizada():
-    TOLERANCIA = 50
-    try:
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        rect = ctypes.wintypes.RECT()
-        ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        largura = rect.right  - rect.left
-        altura  = rect.bottom - rect.top
-        logger.info(f"Janela ativa: {largura}x{altura} | Esperado: {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
-
-        if largura >= SCREEN_WIDTH - TOLERANCIA and altura >= SCREEN_HEIGHT - TOLERANCIA:
-            logger.info("Janela já maximizada.")
-        else:
-            logger.info("Janela não maximizada — aplicando Win+Up...")
-            pyautogui.hotkey("win", "up")
-            pausa(1)
-    except Exception as e:
-        logger.warning(f"Não foi possível verificar janela ({e}) — maximizando por precaução.")
-        pyautogui.hotkey("win", "up")
-        pausa(1)
-
-
 def focar_qlikview_e_navegar():
-    logger.info("=== ETAPA 3: Navegando no QlikView ===")
+    logger.info("=== ETAPA 4: Navegando no QlikView ===")
     pausa(2)
-    _garantir_janela_maximizada()
 
     safe_click(*Coords.QLIKVIEW_CENTER)
     aguardar_tela_estavel()
@@ -254,7 +221,7 @@ def focar_qlikview_e_navegar():
 
 
 # ---------------------------------------------------------------------------
-# Etapa 4: Selecionar bloco de filtro
+# Etapa 5: Selecionar bloco de filtro
 # ---------------------------------------------------------------------------
 
 BLOCOS = {
@@ -269,33 +236,26 @@ _bloco_atual = None
 
 def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> bool:
     """
-    Verifica se o bloco foi realmente selecionado checando se a região
-    ao redor do clique ficou mais ESCURA (azul/destacada).
-
-    Quando um bloco é selecionado no QlikView, o fundo muda de cinza
-    claro para azul escuro. Medimos o brilho médio da região antes e
-    depois — se escureceu significativamente, o bloco foi ativado.
+    Verifica se o bloco foi selecionado checando se a região ficou mais
+    escura (azul). Bloco ativo = brilho < 130.
     """
     x, y   = coords
     regiao = (x - raio, y - raio, raio * 2, raio * 2)
-
-    # Captura estado atual (deve estar mais escuro/azul se ativo)
     deadline = time.time() + timeout
+
     while time.time() < deadline:
-        frame = _capturar_tela()
-        # Recorta a região do bloco
+        frame   = _capturar_tela()
         rx, ry, rw, rh = regiao
         recorte = frame[ry:ry+rh, rx:rx+rw]
-        brilho = float(recorte.mean())
+        brilho  = float(recorte.mean())
         logger.debug(f"Brilho do bloco em {coords}: {brilho:.1f}")
 
-        # Bloco ativo = região mais escura (azul) — brilho < 130 em escala 0-255
         if brilho < 130:
             logger.info(f"✔ Bloco confirmado como ativo (brilho={brilho:.1f}).")
             return True
         time.sleep(0.3)
 
-    logger.warning(f"⚠ Bloco não confirmado como ativo (brilho médio alto = região clara).")
+    logger.warning("⚠ Bloco não confirmado como ativo (brilho alto = região clara).")
     return False
 
 
@@ -309,13 +269,10 @@ def selecionar_bloco(nome_bloco: str):
 
     for tentativa in range(1, 4):
         logger.info(f"Selecionando bloco '{nome_bloco}' (tentativa {tentativa}/3)...")
-
-        # Pequena pausa antes de clicar para garantir que QlikView está pronto
         pausa(1.0)
         safe_click(*coords)
         pausa(1.5)
 
-        # Verifica se o bloco ficou destacado (azul)
         if _bloco_esta_ativo(coords):
             aguardar_tela_estavel()
             _bloco_atual = nome_bloco
@@ -332,7 +289,7 @@ def selecionar_bloco(nome_bloco: str):
 
 
 # ---------------------------------------------------------------------------
-# Etapa 5: Aplicar bookmark
+# Etapa 6: Aplicar bookmark
 # ---------------------------------------------------------------------------
 
 def aplicar_bookmark(nome_bookmark: str):
@@ -351,16 +308,10 @@ def aplicar_bookmark(nome_bookmark: str):
     if not sucesso:
         raise RuntimeError(f"Falha ao selecionar bookmark '{nome_bookmark}'.")
 
-    # Primeira espera: layout termina de renderizar
     aguardar_tela_estavel()
-
-    # Segunda espera: dados da tabela terminam de carregar
-    # O QlikView finaliza o layout antes dos dados — essa pausa garante
-    # que o botão de export está ativo quando o script for clicar.
     logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados da tabela carregarem...")
     pausa(PAUSA_POS_BOOKMARK)
     aguardar_tela_estavel()
-
     logger.info(f"✔ Bookmark '{nome_bookmark}' aplicado e tabela pronta.")
 
 
@@ -369,23 +320,28 @@ def aplicar_bookmark(nome_bookmark: str):
 # ---------------------------------------------------------------------------
 
 def clicar_dupla_seta():
+    """
+    Aguarda a dupla seta (») ficar visível por verificação de pixel
+    e clica na coordenada calibrada.
+    """
     logger.info("Aguardando dupla seta (») ficar visível...")
-    _template_seta = str(_FILES_DIR / "templates" / "botao_dupla_seta.png")
-    visivel_seta = aguardar_elemento_visivel(
-        coords        = Coords.BOTAO_DUPLA_SETA,
-        template_path = _template_seta,
-        timeout       = 60,
-        poll          = 0.5,
-        confidence    = 0.75,
-        raio          = 60        # busca só em ±60px ao redor da coordenada calibrada
+
+    visivel = verificar_pixel_visivel(
+        coords         = Coords.BOTAO_DUPLA_SETA,
+        raio           = 15,
+        brightness_max = 210,
+        tentativas     = 4,
     )
-    if not visivel_seta:
-        logger.warning("⚠ Dupla seta não confirmada pelo template — tentando clicar mesmo assim.")
-    else:
-        logger.info(f"✔ Dupla seta confirmada. Clicando em coordenada calibrada {Coords.BOTAO_DUPLA_SETA}.")
+    if not visivel:
+        logger.info("Dupla seta não visível — aguardando aparecer...")
+        aguardar_elemento_por_pixel(
+            coords         = Coords.BOTAO_DUPLA_SETA,
+            raio           = 15,
+            brightness_max = 210,
+            timeout        = 60,
+        )
 
     logger.info("Clicando na dupla seta (») — transpondo coluna Ano/Mês...")
-    # Clica SEMPRE na coordenada calibrada do coordinates.py
     sucesso = clicar_e_validar(Coords.BOTAO_DUPLA_SETA, "Dupla seta (»)")
     if not sucesso:
         raise RuntimeError("Falha ao clicar na dupla seta (»).")
@@ -409,32 +365,15 @@ MAX_TENTATIVAS_EXPORT = 3
 
 def exportar_excel(bookmark: str, bloco: str) -> Path:
     """
-    Exporta para Excel com retry automático.
+    Exporta para Excel com retry automático e verificação de pixel.
 
-    O QlikView pode demorar bastante para iniciar o download após o clique —
-    o diálogo de loading fica aberto por minutos antes do arquivo aparecer.
-    INICIO_DOWNLOAD_TIMEOUT (config.py) controla esse prazo de espera.
-
-    Cenários tratados:
-      1. Normal: clica → loading → arquivo aparece na pasta.
-      2. Loading fecha sem baixar: detectado pelo timeout → retry.
-      3. Diálogo "press here": detectado por OCR → clica no link.
+    Condição 1: Botão JÁ visível → aguarda dados atualizarem → clica
+    Condição 2: Botão NÃO visível → aguarda aparecer → clica
     """
     coords_export = BOTAO_EXPORT_POR_BLOCO[bloco]()
 
     for tentativa in range(1, MAX_TENTATIVAS_EXPORT + 1):
         logger.info(f"Export tentativa {tentativa}/{MAX_TENTATIVAS_EXPORT} | '{bookmark}'")
-
-        # --- Dois caminhos por verificação de pixel ---
-        #
-        # Condição 1: Botão JÁ visível (pixel escuro detectado nas coords)
-        #   → aguarda dados da tabela atualizarem → clica
-        #
-        # Condição 2: Botão ainda NÃO visível (fundo claro nas coords)
-        #   → aguarda pixel escuro aparecer (até 60s) → clica
-        #
-        # Sem template matching — usa brilho do pixel diretamente.
-        # Botões do QlikView são ícones escuros sobre fundo claro.
 
         ja_visivel = verificar_pixel_visivel(
             coords         = coords_export,
@@ -444,9 +383,7 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
         )
 
         if ja_visivel:
-            logger.info(
-                "Botão export já visível — aguardando dados do filtro atualizarem..."
-            )
+            logger.info("Botão export já visível — aguardando dados do filtro atualizarem...")
             pausa(PAUSA_POS_BOOKMARK)
             aguardar_tela_estavel()
             logger.info("✔ Dados atualizados. Pronto para clicar.")
@@ -490,35 +427,33 @@ def exportar_excel(bookmark: str, bloco: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Loop principal
+# Loop principal de downloads
 # ---------------------------------------------------------------------------
 
 def _recuperar_navegacao():
-    """
-    Tenta recuperar o estado do QlikView sem fechar o navegador.
-    Navega de volta para Gráficos | Relatórios e reseta o bloco ativo.
-    Útil quando o QlikView pula uma etapa por lentidão.
-    """
+    """Volta para Gráficos | Relatórios sem fechar o navegador."""
     global _bloco_atual
-    logger.warning("♻ Recuperando navegação — voltando para Gráficos | Relatórios...")
-    _bloco_atual = None  # força re-seleção do bloco no próximo ciclo
+    logger.warning("Recuperando navegacao — voltando para Graficos | Relatorios...")
+    _bloco_atual = None
     try:
         safe_click(*Coords.QLIKVIEW_CENTER)
         pausa(1)
-        sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Gráficos | Relatórios (recuperação)")
+        sucesso = clicar_e_validar(
+            Coords.ABA_GRAFICOS_RELATORIOS, "Graficos | Relatorios (recuperacao)"
+        )
         if sucesso:
             aguardar_tela_estavel()
-            logger.info("✔ Navegação recuperada com sucesso.")
+            logger.info("✔ Navegacao recuperada com sucesso.")
             return True
     except Exception as e:
-        logger.error(f"❌ Falha ao recuperar navegação: {e}")
+        logger.error(f"❌ Falha ao recuperar navegacao: {e}")
     return False
 
 
 def executar_downloads():
-    logger.info("=== ETAPA 4: Iniciando loop de downloads ===")
+    logger.info("=== ETAPA 5: Iniciando loop de downloads ===")
     arquivos    = []
-    MAX_RECOVERY = 2  # tentativas de recuperação por download
+    MAX_RECOVERY = 2
 
     for i, (bloco, bookmark, clicar_seta) in enumerate(DOWNLOADS, start=1):
         logger.info(f"\n{'='*60}")
@@ -536,7 +471,7 @@ def executar_downloads():
                 arquivo = exportar_excel(bookmark, bloco)
                 arquivos.append(arquivo)
                 logger.info(f"✅ Download {i}/8 concluído: {arquivo.name}\n")
-                break  # sucesso — vai para próximo download
+                break
 
             except Exception as e:
                 screenshot = str(_BASE_DIR / f"erro_{i}_{bookmark.replace(' ', '_')}.png")
@@ -545,16 +480,15 @@ def executar_downloads():
                 if recovery < MAX_RECOVERY:
                     logger.warning(
                         f"⚠ Falha no download {i}/8 ({bookmark}): {e}\n"
-                        f"   Tentando recuperar sem fechar o navegador "
-                        f"(tentativa {recovery + 1}/{MAX_RECOVERY})..."
+                        f"   Recuperando (tentativa {recovery + 1}/{MAX_RECOVERY})..."
                     )
                     if not _recuperar_navegacao():
-                        logger.error("Recuperação falhou — encerrando.")
+                        logger.error("Recuperacao falhou — encerrando.")
                         raise
                     pausa(3)
                 else:
                     logger.error(f"❌ Download {i}/8 falhou após {MAX_RECOVERY} recuperações: {e}")
-                    logger.error(f"Screenshot salvo: {screenshot}")
+                    logger.error(f"Screenshot: {screenshot}")
                     raise
 
     return arquivos
@@ -570,13 +504,8 @@ def main():
     logger.info("╚══════════════════════════════════════╝")
 
     try:
-        # Etapas 1, 2 e 3: abre Chrome real e faz login via PyAutoGUI
         abrir_chrome_e_login()
-
-        # Etapa 4: navega para Graficos | Relatorios no QlikView
         focar_qlikview_e_navegar()
-
-        # Etapa 5: loop de 8 downloads
         arquivos = executar_downloads()
 
         logger.info("\n╔══════════════════════════════════════╗")
