@@ -35,6 +35,8 @@ import numpy as np
 import cv2
 import pyautogui
 import pyperclip
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 from .config import (
     USERNAME, PASSWORD, LOGIN_URL, AMBIENTE_NOME,
@@ -45,7 +47,7 @@ from .config import (
 from .screen_utils import (
     wait_for_screen_stable, safe_click,
     verificar_pixel_visivel, aguardar_elemento_por_pixel,
-    localizar_texto_e_clicar
+    clicar_bookmark_por_nome
 )
 from .download_watcher import (
     get_download_dir, snapshot_dir, _is_temp, renomear_arquivo
@@ -123,35 +125,6 @@ def clicar_e_validar(coordenada: tuple, descricao: str, tentativas: int = 3) -> 
     return False
 
 
-# ---------------------------------------------------------------------------
-# Deteccao do dialogo "press here"
-# ---------------------------------------------------------------------------
-
-def _dialogo_press_here_visivel() -> bool:
-    try:
-        import pytesseract
-        shot  = pyautogui.screenshot()
-        texto = pytesseract.image_to_string(shot).lower()
-        if "press here" in texto or "another window" in texto:
-            logger.info("Dialogo 'press here' detectado via OCR.")
-            return True
-    except Exception:
-        pass
-
-    template_path = _FILES_DIR / "templates" / "press_here.png"
-    if template_path.exists():
-        try:
-            template  = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-            tela      = _capturar_tela()
-            resultado = cv2.matchTemplate(tela, template, cv2.TM_CCOEFF_NORMED)
-            _, max_val, _, _ = cv2.minMaxLoc(resultado)
-            if max_val >= 0.85:
-                logger.info(f"Dialogo 'press here' detectado via template (score={max_val:.2f}).")
-                return True
-        except Exception as e:
-            logger.debug(f"Template matching falhou: {e}")
-
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +150,7 @@ def abrir_chrome_e_login():
     safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
     logger.info("Botao Entrar clicado — aguardando selecao de ambiente...")
     aguardar_tela_estavel(timeout=20)
-    pausa(2)
+    pausa(4)
 
     logger.info("=== ETAPA 3: Selecionar ambiente ===")
     safe_click(*Coords.LOGIN_AMBIENTE)
@@ -216,7 +189,9 @@ BLOCOS = {
 _bloco_atual = None
 
 
-def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> bool:
+def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 15) -> bool:
+    # Threshold aumentado para 160 pois cada bloco tem tonalidade de azul diferente.
+    # PDV ativo ~ 108, outros blocos podem ficar entre 130-155.
     x, y   = coords
     regiao = (x - raio, y - raio, raio * 2, raio * 2)
     deadline = time.time() + timeout
@@ -228,12 +203,12 @@ def _bloco_esta_ativo(coords: tuple, raio: int = 20, timeout: float = 10) -> boo
         brilho  = float(recorte.mean())
         logger.debug(f"Brilho do bloco em {coords}: {brilho:.1f}")
 
-        if brilho < 130:
+        if brilho < 160:
             logger.info(f"✔ Bloco confirmado como ativo (brilho={brilho:.1f}).")
             return True
         time.sleep(0.3)
 
-    logger.warning("⚠ Bloco nao confirmado como ativo.")
+    logger.warning(f"⚠ Bloco nao confirmado (brilho manteve-se acima de 160).")
     return False
 
 
@@ -267,12 +242,6 @@ def selecionar_bloco(nome_bloco: str):
 # Aplicar bookmark
 # ---------------------------------------------------------------------------
 
-# Regiao aproximada onde o dropdown de bookmarks abre.
-# Cobre a area abaixo e ao redor do botao dropdown.
-# Ajuste se o dropdown aparecer fora dessa area.
-_REGIAO_DROPDOWN = (400, 80, 450, 500)   # (x, y, largura, altura)
-
-
 def aplicar_bookmark(nome_bookmark: str):
     logger.info(f"Aplicando bookmark: '{nome_bookmark}'")
 
@@ -280,26 +249,35 @@ def aplicar_bookmark(nome_bookmark: str):
     sucesso = clicar_e_validar(Coords.DROPDOWN_BOOKMARK, "Dropdown Bookmark")
     if not sucesso:
         raise RuntimeError("Falha ao abrir dropdown de bookmarks.")
-    pausa(1.5)   # aguarda lista expandir
+    pausa(2.0)   # aguarda lista expandir completamente
 
-    # Tenta localizar o bookmark pelo nome via OCR (mais robusto que coordenadas fixas)
-    achou = localizar_texto_e_clicar(
-        texto   = nome_bookmark,
-        regiao  = _REGIAO_DROPDOWN,
-        timeout = 5.0,
+    # Estrategia: X fixo + Y via OCR
+    # O dropdown sempre abre na mesma coluna horizontal.
+    # Fixar X evita que o OCR clique na tabela ao fundo.
+    # A regiao cobre APENAS a largura do dropdown (nao a tabela).
+    btn_x, btn_y = Coords.DROPDOWN_BOOKMARK
+    x_dropdown   = btn_x - 14           # centro horizontal do dropdown (≈ 609)
+    regiao_ocr   = (
+        x_dropdown - 90,  # ≈ 519 — inicio da regiao
+        btn_y + 20,       # ≈ 121 — comeca abaixo do botao
+        200,              # largura estreita: so o dropdown
+        420,              # altura cobrindo todos os itens
+    )
+
+    achou = clicar_bookmark_por_nome(
+        nome   = nome_bookmark,
+        x_fixo = x_dropdown,
+        regiao = regiao_ocr,
+        timeout = 8.0,
     )
 
     if not achou:
-        # Fallback: usa coordenada calibrada se OCR falhar
-        logger.warning(
-            f"OCR nao encontrou '{nome_bookmark}' — usando coordenada calibrada como fallback."
-        )
+        # Fallback: coordenada calibrada
+        logger.warning(f"OCR falhou para '{nome_bookmark}' — usando coordenada calibrada.")
         bookmark_coords = Coords.BOOKMARKS.get(nome_bookmark)
         if bookmark_coords is None:
-            raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado em coordinates.py.")
-        sucesso = clicar_e_validar(bookmark_coords, f"Bookmark '{nome_bookmark}'")
-        if not sucesso:
-            raise RuntimeError(f"Falha ao selecionar bookmark '{nome_bookmark}'.")
+            raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado.")
+        safe_click(*bookmark_coords)
 
     aguardar_tela_estavel()
     logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados carregarem...")
@@ -350,8 +328,6 @@ BOTAO_EXPORT_POR_BLOCO = {
 }
 
 MAX_TENTATIVAS_EXPORT    = 3
-ESPERA_APOS_DIALOG_FECHAR = 30   # segundos aguardando arquivo apos dialogo fechar
-
 
 def _verificar_novo_arquivo(before: set, download_dir: Path):
     """
@@ -394,21 +370,23 @@ def _aguardar_arquivo_estavel(arquivo: Path, poll: float = 2.0, ciclos: int = 3)
     return False
 
 
+# Segundos aguardando arquivo apos dialogo fechar sem download (cenario 2)
+ESPERA_APOS_DIALOG_FECHAR = 10
+
+
 def _monitorar_export(before: set, download_dir: Path) -> Path:
     """
-    Monitora o resultado do clique no botao export e trata os 3 cenarios.
+    Monitora o resultado do clique no botao export.
 
-    Retorna o Path do arquivo baixado, ou None se deve retentar.
+    Cenario 1 (normal):
+      Dialogo "Exporting..." processa → Chrome abre nova aba → arquivo aparece.
 
-    Estado interno:
-      - dialog_fechou_em: quando o dialogo fechou (timestamp)
-      - press_here_clicado: se ja clicamos no link press here
+    Cenario 2 (falha silenciosa):
+      Dialogo fecha sem download → retorna None para retentar.
     """
-    ref_dialogo        = _capturar_tela()
-    dialog_fechou_em   = None
-    press_here_clicado = False
-
-    deadline = time.time() + DOWNLOAD_TIMEOUT
+    ref_dialogo      = _capturar_tela()
+    dialog_fechou_em = None
+    deadline         = time.time() + DOWNLOAD_TIMEOUT
 
     while time.time() < deadline:
         time.sleep(1)
@@ -420,10 +398,9 @@ def _monitorar_export(before: set, download_dir: Path) -> Path:
             if _aguardar_arquivo_estavel(arquivo):
                 logger.info(f"✅ Download completo: {arquivo.name} ({arquivo.stat().st_size:,} bytes)")
                 return arquivo
-            # Arquivo ainda nao estavel, continua aguardando
             continue
 
-        # Verifica se ha arquivo temporario (download em progresso)
+        # Verifica arquivo temporario (download em progresso)
         try:
             todos   = list(download_dir.iterdir()) if download_dir.exists() else []
             tem_tmp = any(_is_temp(f) for f in todos if f.is_file())
@@ -433,45 +410,32 @@ def _monitorar_export(before: set, download_dir: Path) -> Path:
         except Exception:
             pass
 
-        # --- 2. Cenario 3: detecta dialogo "press here" ---
-        if not press_here_clicado and _dialogo_press_here_visivel():
-            logger.warning("Dialogo 'press here' → clicando no link...")
-            safe_click(*Coords.LINK_PRESS_HERE)
-            pausa(3)
-            press_here_clicado = True
-            ref_dialogo        = _capturar_tela()   # reinicia referencia
-            continue
-
-        # --- 3. Cenario 2: detecta dialogo fechando ---
+        # --- 2. Detecta dialogo fechando ---
         if dialog_fechou_em is None:
             atual = _capturar_tela()
             sim   = _similaridade(ref_dialogo, atual)
             if sim < 0.94:
                 dialog_fechou_em = time.time()
-                logger.info(f"Dialogo fechou (similaridade={sim:.3f}). "
+                logger.info(f"Dialogo fechou (sim={sim:.3f}). "
                             f"Aguardando arquivo por ate {ESPERA_APOS_DIALOG_FECHAR}s...")
 
-        # Se dialogo fechou e press here nao foi necessario:
-        # aguarda ESPERA_APOS_DIALOG_FECHAR segundos para o arquivo aparecer
-        if dialog_fechou_em and not press_here_clicado:
+        if dialog_fechou_em:
             tempo_desde_fechou = time.time() - dialog_fechou_em
 
-            # Verifica se tem sinal de download (temp ou novo arquivo)
+            # Verifica sinal de download
             try:
                 todos   = list(download_dir.iterdir()) if download_dir.exists() else []
                 tem_tmp = any(_is_temp(f) for f in todos if f.is_file())
                 novos   = {f for f in todos if f.is_file() and not _is_temp(f)} - before
                 if tem_tmp or novos:
-                    # Ha sinal de download — continua aguardando normalmente
-                    continue
+                    continue   # download em andamento, aguarda
             except Exception:
                 pass
 
             if tempo_desde_fechou >= ESPERA_APOS_DIALOG_FECHAR:
-                # Cenario 2: dialogo fechou, nenhum download iniciado
                 logger.warning(
-                    f"Cenario 2: dialogo fechou ha {tempo_desde_fechou:.0f}s "
-                    f"sem download — vai retentar o clique no export."
+                    f"Dialogo fechou ha {tempo_desde_fechou:.0f}s sem download "
+                    f"→ vai retentar o clique no export."
                 )
                 return None
 
@@ -573,6 +537,7 @@ def executar_downloads():
                 arquivo = exportar_excel(bookmark, bloco)
                 arquivos.append(arquivo)
                 logger.info(f"✅ Download {i}/8 concluido: {arquivo.name}\n")
+                pausa(3)   # deixa QlikView estabilizar apos download
                 break
 
             except Exception as e:

@@ -50,7 +50,7 @@ class Coords:
     # Posições de cada bookmark dentro da lista dropdown
     # -------------------------------------------------------------------------
     BOOKMARKS = {
-        "ST - Grit":             (609, 389),
+        "ST - Grit":             (609, 411),
         "ST - Grit - Mateus":    (609, 411),
         "CATEGORIA AR":          (609, 143),
         "CATEGORIA AR - MATEUS": (609, 170),

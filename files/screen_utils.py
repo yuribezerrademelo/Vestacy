@@ -29,8 +29,8 @@ def _capture(region=None) -> np.ndarray:
     em certos estados (ex: após abrir dropdown, antes de Alt+Tab).
     """
     try:
-        import mss
-        import mss.tools
+        import mss # type: ignore
+        import mss.tools # type: ignore
         with mss.mss() as sct:
             if region:
                 x, y, w, h = region
@@ -55,7 +55,7 @@ def _capture_pil(region=None):
     Também usa mss quando disponível.
     """
     try:
-        import mss
+        import mss # type: ignore
         from PIL import Image
         with mss.mss() as sct:
             if region:
@@ -560,4 +560,128 @@ def localizar_texto_e_clicar(
         time.sleep(poll)
 
     logger.warning(f"⚠ Texto '{texto}' não encontrado na tela após {timeout}s.")
+    return False
+
+# ---------------------------------------------------------------------------
+# Clique em bookmark por nome via OCR + X fixo
+# ---------------------------------------------------------------------------
+
+def clicar_bookmark_por_nome(
+    nome: str,
+    x_fixo: int,
+    regiao: tuple,
+    timeout: float = 8.0,
+    poll: float    = 0.5,
+    escala: int    = 2,
+    confianca: int = 25,
+) -> bool:
+    """
+    Localiza um item de dropdown pelo nome via OCR e clica usando X fixo.
+
+    Por que X fixo?
+    O QlikView renderiza a tabela de dados atras do dropdown. Se usarmos
+    as coordenadas X do OCR, ele pode encontrar texto na tabela e clicar la.
+    Ao fixar X no centro do dropdown e usar OCR so para encontrar Y,
+    garantimos que o clique cai sempre dentro do dropdown.
+
+    Usa mss para capturar a tela (mais confiavel com janelas GPU como QlikView).
+
+    Args:
+        nome:      Nome exato do bookmark (ex: "ST - Grit - Mateus").
+        x_fixo:    Coordenada X do centro do dropdown.
+        regiao:    (x, y, w, h) regiao de busca — deve cobrir so o dropdown.
+        timeout:   Tempo maximo de tentativas em segundos.
+        poll:      Intervalo entre tentativas.
+        escala:    Fator de ampliacao para melhorar OCR (2 = 2x).
+        confianca: Confianca minima do OCR (0-100). Valor baixo = mais permissivo.
+
+    Returns:
+        True se encontrou e clicou, False caso contrario.
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        logger.warning("pytesseract nao disponivel para busca de bookmark.")
+        return False
+
+    offset_y   = regiao[1]
+    nome_lower = nome.lower().strip()
+    deadline   = time.time() + timeout
+
+    # Normaliza o nome para comparacao tolerante (OCR as vezes omite espacos em tracos)
+    def normalizar(s: str) -> str:
+        return s.lower().strip().replace(" - ", "-").replace("- ", "-").replace(" -", "-")
+
+    nome_norm = normalizar(nome)
+
+    while time.time() < deadline:
+        try:
+            # Captura via mss (mais confiavel com QlikView GPU)
+            try:
+                import mss # type: ignore
+                rx, ry, rw, rh = regiao
+                with mss.mss() as sct:
+                    monitor = {"left": rx, "top": ry, "width": rw, "height": rh}
+                    raw = sct.grab(monitor)
+                    shot = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
+            except Exception:
+                shot = pyautogui.screenshot(region=regiao)
+
+            # Amplia para melhorar precisao do OCR
+            shot_grande = shot.resize(
+                (shot.width * escala, shot.height * escala),
+                Image.LANCZOS
+            )
+
+            # Extrai texto com posicoes
+            data = pytesseract.image_to_data(
+                shot_grande,
+                output_type=pytesseract.Output.DICT,
+                config="--psm 6"
+            )
+
+            # Reconstroi linhas agrupando palavras por (bloco, paragrafo, linha)
+            linhas: dict = {}
+            for i in range(len(data["text"])):
+                conf = int(data["conf"][i])
+                word = data["text"][i].strip()
+                if conf < confianca or not word:
+                    continue
+                key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+                if key not in linhas:
+                    linhas[key] = {"palavras": [], "tops": [], "bots": []}
+                linhas[key]["palavras"].append(word)
+                linhas[key]["tops"].append(data["top"][i])
+                linhas[key]["bots"].append(data["top"][i] + data["height"][i])
+
+            # Procura match: exato primeiro, depois normalizado
+            for modo in ["exato", "normalizado"]:
+                for key, ld in linhas.items():
+                    linha = " ".join(ld["palavras"]).strip()
+
+                    if modo == "exato":
+                        match = linha.lower() == nome_lower
+                    else:
+                        match = normalizar(linha) == nome_norm
+
+                    if match:
+                        # Y calculado pelo OCR + offset da regiao
+                        cy = (min(ld["tops"]) + max(ld["bots"])) // 2 // escala + offset_y
+                        logger.info(
+                            f"Bookmark '{nome}' encontrado via OCR "
+                            f"(modo={modo}, linha='{linha}') → ({x_fixo}, {cy})"
+                        )
+                        safe_click(x_fixo, cy)
+                        return True
+
+            logger.debug(f"OCR nao encontrou '{nome}' nesta tentativa. Linhas: "
+                         + str([" ".join(ld["palavras"]) for ld in linhas.values()][:5]))
+
+        except Exception as e:
+            logger.debug(f"clicar_bookmark_por_nome erro: {e}")
+
+        time.sleep(poll)
+
+    logger.warning(f"Bookmark '{nome}' nao encontrado via OCR apos {timeout}s.")
     return False
