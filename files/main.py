@@ -54,7 +54,7 @@ from .download_watcher import (
 )
 from .coordinates import Coords
 from files.tratar_bases_mtrix import main as tratar_bases
-
+from files.powerbi_download import main as baixar_powerbi
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -583,6 +583,7 @@ def main():
         for f in arquivos:
             logger.info(f"  -> {f.name}")
         tratar_bases()
+        baixar_powerbi()
     except Exception as e:
         logger.critical(f"Erro fatal: {e}", exc_info=True)
         sys.exit(1)

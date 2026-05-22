@@ -86,4 +86,4 @@ class Coords:
     # ← CALIBRAR: provoque os diálogos manualmente e use calibrate_manual.py
     # -------------------------------------------------------------------------
     LINK_PRESS_HERE = (175, 422)   # ← CALIBRAR
-    DIALOGO_OK      = (357, 373)   # ← CALIBRAR
+    DIALOGO_OK      = (1909, 695)   # ← CALIBRAR

@@ -1,3 +1,4 @@
+import shutil
 import pandas as pd
 from pathlib import Path
 from openpyxl import load_workbook
@@ -11,6 +12,9 @@ from files.config import DOWNLOAD_DIR
 # Pasta onde estão os 8 arquivos exportados da Mtrix
 # Importado do config.py — mesma lógica do download_watcher.py
 PASTA_BASES = Path(DOWNLOAD_DIR) if DOWNLOAD_DIR else Path.home() / "Downloads"
+
+# Pasta de destino final dos 4 arquivos tratados
+PASTA_DESTINO = Path(r"C:\Users\yurib\Downloads\Vestacy\Histórico Mtrix")
 
 # Clientes a serem removidos das bases normais
 CLIENTES_MATEUS = [
@@ -79,9 +83,7 @@ def celula_para_texto(cell):
 
     # Número — preserva máxima precisão, converte para padrão BR
     if isinstance(value, float):
-        # Converte para string com precisão total (sem notação científica)
         texto = f"{value:.15g}"
-        # Troca ponto por vírgula (padrão BR)
         return texto.replace(".", ",")
 
     if isinstance(value, int):
@@ -104,10 +106,8 @@ def carregar_base(nome_base):
     if not linhas:
         raise ValueError(f"Arquivo vazio: {arquivo}")
 
-    # Primeira linha = cabeçalho (valor bruto)
     cabecalho = [cell.value if cell.value is not None else "" for cell in linhas[0]]
 
-    # Demais linhas = dados com precisão total
     dados = []
     for row in linhas[1:]:
         dados.append([celula_para_texto(cell) for cell in row])
@@ -155,17 +155,15 @@ def salvar_base(df, nome_base):
     wb = load_workbook(arquivo)
     ws = wb.active
 
-    # Limpa todo o conteúdo existente
     ws.delete_rows(1, ws.max_row)
 
-    # Escreve cabeçalho + dados forçando cada célula como string
     for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=str(value) if pd.notna(value) else "")
             cell.data_type = "s"
 
     wb.save(arquivo)
-    print(f"  Salvo '{nome_base}.xlsx' com {len(df)} linhas\n")
+    print(f"  Salvo '{nome_base}.xlsx' com {len(df)} linhas")
 
 
 def deletar_base_mateus(nome_mateus):
@@ -174,6 +172,15 @@ def deletar_base_mateus(nome_mateus):
     if arquivo.exists():
         arquivo.unlink()
         print(f"  Arquivo '{nome_mateus}.xlsx' deletado")
+
+
+def mover_para_destino(nome_base):
+    """Move o arquivo tratado para a pasta de destino, substituindo se já existir."""
+    PASTA_DESTINO.mkdir(parents=True, exist_ok=True)
+    origem = caminho(nome_base)
+    destino = PASTA_DESTINO / f"{nome_base}.xlsx"
+    shutil.move(str(origem), str(destino))
+    print(f"  Movido para: {destino}\n")
 
 
 # ============================================================
@@ -206,8 +213,12 @@ def main():
         # 6. Deleta o arquivo Mateus
         deletar_base_mateus(nome_mateus)
 
+        # 7. Move o arquivo tratado para a pasta de destino
+        mover_para_destino(nome_normal)
+
     print("=" * 60)
-    print("Processo concluído! 4 bases finais salvas.")
+    print("Processo concluído! 4 bases salvas em:")
+    print(f"  {PASTA_DESTINO}")
     print("=" * 60)
 
 
