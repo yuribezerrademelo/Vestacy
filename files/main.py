@@ -53,6 +53,7 @@ from .download_watcher import (
     get_download_dir, snapshot_dir, _is_temp, renomear_arquivo
 )
 from .coordinates import Coords
+from files.tratar_bases_mtrix import main as tratar_bases
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -576,12 +577,12 @@ def main():
         arquivos = executar_downloads()
 
         logger.info("\n╔══════════════════════════════════════╗")
-        logger.info("║   Automacao concluida com sucesso!   ║")
+        logger.info("║   Arquvios baixados com sucesso      ║")
         logger.info("╚══════════════════════════════════════╝")
         logger.info(f"Total: {len(arquivos)} arquivo(s):")
         for f in arquivos:
             logger.info(f"  -> {f.name}")
-
+        tratar_bases()
     except Exception as e:
         logger.critical(f"Erro fatal: {e}", exc_info=True)
         sys.exit(1)
