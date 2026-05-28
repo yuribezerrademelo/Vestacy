@@ -587,7 +587,7 @@ def clicar_bookmark_por_nome(
     Usa mss para capturar a tela (mais confiavel com janelas GPU como QlikView).
 
     Args:
-        nome:      Nome exato do bookmark (ex: "ST - Grit - Mateus").
+        nome:      Nome exato do bookmark (ex: "ST - Grit Mateus").
         x_fixo:    Coordenada X do centro do dropdown.
         regiao:    (x, y, w, h) regiao de busca — deve cobrir so o dropdown.
         timeout:   Tempo maximo de tentativas em segundos.
