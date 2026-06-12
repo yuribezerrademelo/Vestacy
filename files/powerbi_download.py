@@ -31,8 +31,6 @@ DOWNLOAD_DIR_PATH = Path(DOWNLOAD_DIR) if DOWNLOAD_DIR else Path.home() / "Downl
 # ============================================================
 
 COORDS = {
-    # Painel esquerdo
-    "aba_faturado":       (150, 771),
 
     # One Page — Grid Geral
     "grid_geral_hover":   (1956, 1250),
@@ -276,7 +274,8 @@ def main():
 
     # ARQUIVO 2 — 02.Faturado
     print("\n>>> Navegando para '02.Faturado'...")
-    pyautogui.click(*COORDS["aba_faturado"])
+    if not clicar_por_texto("02.Faturado"):
+        raise RuntimeError("Não foi possível localizar '02.Faturado' no painel.")
     aguardar_pagina_carregar()
 
     print("\n>>> Convertendo gráfico para tabela...")
