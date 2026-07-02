@@ -66,8 +66,57 @@ DOWNLOADS = [
     ("PDV",                    "ST - Grit - Mateus",    False),
     ("Tempo",                  "CATEGORIA AR",           False),
     ("Tempo",                  "CATEGORIA AR - MATEUS",  False),
-    ("Agente de Distribuição", "ST - DBs",              False),
-    ("Agente de Distribuição", "ST - DBs - Mateus",     False),
+    ("Agente de Distribuição", "ST - DBs",                    False),
+    ("Agente de Distribuição", "ST - DBs - Mateus",           False),
+    ("Agente de Distribuição", "Sell Out - DB's - Com CPF",         False),
+    ("Agente de Distribuição", "Sell Out - DB's - Com CPF - Mateus",False),
     ("Produto",                "Produto",               True),
     ("Produto",                "Produto - Mateus",      False),
 ]
+# =============================================================================
+# DROPDOWN DE BOOKMARKS — configuração para clique calculado
+# =============================================================================
+# Manter BOOKMARK_ORDER atualizado quando adicionar ou remover bookmarks.
+# A ordem deve ser EXATAMENTE a mesma exibida no dropdown (alfabética).
+# Para atualizar: basta inserir/remover o nome na posição correta.
+#
+# Parâmetros de posição (BOOKMARK_Y_FIRST e BOOKMARK_ITEM_HEIGHT) só precisam
+# ser recalibrados se o QlikView mudar de layout ou resolução de tela.
+# =============================================================================
+
+# BOOKMARK_ORDER — lista exata do dropdown, na ordem em que aparece.
+# IMPORTANTE: "Select Bookmark" e o item de indice 0 (onde Home aterra).
+# Os bookmarks reais comecam no indice 1.
+# Atualize esta lista sempre que adicionar ou remover bookmarks.
+BOOKMARK_ORDER = [
+    # "Select Bookmark" NAO entra na lista:
+    # ele so aparece quando nenhum filtro esta ativo.
+    # Apos qualquer selecao, Home vai direto para CATEGORIA AR.
+    # Usamos End+Up para navegar — funciona igual nos dois estados.
+    "CATEGORIA AR",                                   # 0
+    "CATEGORIA AR - MATEUS",                          # 1
+    "OnePage - Aba Agente de Distribuicao",           # 2
+    "OnePage - Aba Agente de Distribuicao - Mateus",  # 3
+    "OnePage - Aba PDV",                              # 4
+    "OnePage - Aba PDV - Mateus",                     # 5
+    "OnePage - Aba Produto",                          # 6
+    "OnePage - Aba Produto - Mateus",                 # 7
+    "Produto",                                        # 8
+    "Produto - Mateus",                               # 9
+    "Sell Out - DB's - Com CPF",                     # 10
+    "Sell Out - DB's - Com CPF - Mateus",            # 11
+    "ST - DBs",                                       # 12
+    "ST - DBs - Mateus",                              # 13
+    "ST - Grit",                                      # 14
+    "ST - Grit - Mateus",                             # 15
+]
+
+# Y da primeira linha de itens do dropdown (pixels da tela)
+# Calibrado com CATEGORIA AR selecionado visualmente
+BOOKMARK_Y_FIRST = 143
+
+# Altura de cada item em pixels (espaçamento entre linhas)
+BOOKMARK_ITEM_HEIGHT = 24.5
+
+# X fixo do centro da coluna de itens do dropdown
+BOOKMARK_X = 609

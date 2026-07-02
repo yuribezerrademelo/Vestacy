@@ -54,8 +54,10 @@ class Coords:
         "ST - Grit - Mateus":    (609, 411),
         "CATEGORIA AR":          (609, 143),
         "CATEGORIA AR - MATEUS": (609, 170),
-        "ST - DBs":              (609, 337),
-        "ST - DBs - Mateus":     (609, 362),
+        "ST - DBs":                    (609, 337),
+        "ST - DBs - Mateus":           (609, 362),
+        "Sell Out - DB's - Com CPF":         (609, 362),   # ← CALIBRAR se teclado falhar
+        "Sell Out - DB's - Com CPF - Mateus":(609, 362),   # ← CALIBRAR se teclado falhar
         "Produto":               (609, 291),
         "Produto - Mateus":      (609, 314),
     }

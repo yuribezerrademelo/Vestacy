@@ -30,6 +30,7 @@ PARES_BASES = {
     "01.01 - Base Grit":     "01.01 - Base Grit Mateus",
     "02.01 - Categorias Ar": "02.01 - Categorias Ar MATEUS",
     "03.01 - Actual Dbs":    "03.01 - Actual Dbs Mateus",
+    "07.01 - Actual Dbs CPF": "07.01 - Actual Dbs CPF Mateus",
     "05.01 - Produtos":      "05.01 - Produtos Mateus",
 }
 
@@ -46,6 +47,9 @@ LINHAS_EXTRAS = {
     # Bases que têm 4 linhas em branco (linhas 2-5 do Excel = índices 0-3 nos dados)
     "03.01 - Actual Dbs":            [0, 1, 2, 3],
     "03.01 - Actual Dbs Mateus":     [0, 1, 2, 3],
+    # Mesmo bloco que 03.01 — verificar se tem 4 linhas em branco
+    "07.01 - Actual Dbs CPF":        [0, 1, 2, 3],
+    "07.01 - Actual Dbs CPF Mateus": [0, 1, 2, 3],
 }
 
 # ============================================================

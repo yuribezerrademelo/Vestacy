@@ -42,7 +42,8 @@ from .config import (
     USERNAME, PASSWORD, LOGIN_URL, AMBIENTE_NOME,
     DOWNLOADS, WAIT_STABILITY_TIMEOUT, WAIT_STABILITY_INTERVAL,
     WAIT_STABILITY_THRESHOLD, DOWNLOAD_TIMEOUT,
-    PAUSA_POS_BOOKMARK, INICIO_DOWNLOAD_TIMEOUT
+    PAUSA_POS_BOOKMARK, INICIO_DOWNLOAD_TIMEOUT,
+    BOOKMARK_ORDER, BOOKMARK_Y_FIRST, BOOKMARK_ITEM_HEIGHT, BOOKMARK_X
 )
 from .screen_utils import (
     wait_for_screen_stable, safe_click,
@@ -243,42 +244,197 @@ def selecionar_bloco(nome_bloco: str):
 # Aplicar bookmark
 # ---------------------------------------------------------------------------
 
+def _calcular_y_bookmark(nome: str):
+    """
+    Calcula a coordenada Y de um bookmark usando H=24.5px por item.
+    Y = BOOKMARK_Y_FIRST + round(indice * BOOKMARK_ITEM_HEIGHT)
+    Retorna None se o nome nao estiver em BOOKMARK_ORDER.
+    """
+    try:
+        idx = BOOKMARK_ORDER.index(nome)
+        return round(BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT)
+    except ValueError:
+        return None
+
+
+def _selecionar_bookmark_win32(nome: str) -> bool:
+    """
+    Seleciona um bookmark usando a API do Windows para buscar pelo texto.
+
+    Quando o dropdown esta aberto, o QlikView usa um controle Windows
+    padrao (ListBox ou ComboLBox). Enviamos LB_FINDSTRING para localizar
+    o item pelo nome exato e LB_SETCURSEL para selecioná-lo — sem contar
+    posicoes, sem coordenadas, sem OCR.
+
+    Returns True se encontrou e selecionou, False caso contrário.
+    """
+    try:
+        import win32gui
+        import win32con
+        import win32api
+    except ImportError:
+        logger.debug("pywin32 nao instalado — _selecionar_bookmark_win32 indisponivel.")
+        return False
+
+    LB_FINDSTRING  = 0x018F
+    LB_SETCURSEL   = 0x0186
+    LB_ERR         = -1
+
+    # Procura o controle de lista que o QlikView abriu
+    # (pode ser ListBox, ComboLBox ou LISTBOX dependendo da versao)
+    CLASSES_LISTA = {"ListBox", "ComboLBox", "LISTBOX", "listbox"}
+
+    hwnd_lista = None
+
+    def _enum_all_windows(hwnd, _):
+        nonlocal hwnd_lista
+        if hwnd_lista:
+            return
+        try:
+            cls = win32gui.GetClassName(hwnd)
+            if cls in CLASSES_LISTA and win32gui.IsWindowVisible(hwnd):
+                hwnd_lista = hwnd
+        except Exception:
+            pass
+
+    # Enumera janelas de nivel superior E filhas abertas
+    win32gui.EnumWindows(_enum_all_windows, None)
+
+    if hwnd_lista is None:
+        logger.debug("Controle ListBox do dropdown nao encontrado via EnumWindows.")
+        return False
+
+    # Busca o item pelo texto (case-insensitive, busca por inicio)
+    # LB_FINDSTRING: -1 = buscar a partir do inicio
+    idx = win32api.SendMessage(hwnd_lista, LB_FINDSTRING, -1, nome)
+
+    if idx == LB_ERR:
+        logger.warning(f"Item '{nome}' nao encontrado no ListBox via Win32.")
+        return False
+
+    # Seleciona o item encontrado
+    win32api.SendMessage(hwnd_lista, LB_SETCURSEL, idx, 0)
+
+    # Confirma com Enter para que o QlikView processe a selecao
+    pausa(0.1)
+    pyautogui.press("enter")
+
+    logger.info(f"Bookmark '{nome}' selecionado via Win32 (LB_FINDSTRING idx={idx}).")
+    return True
+
+
+def _selecionar_bookmark_teclado(nome: str) -> bool:
+    """
+    Seleciona um bookmark navegando com teclado: End + N x Up + Enter.
+
+    POR QUE End E NAO Home:
+      "Select Bookmark" aparece como item navegavel APENAS quando nenhum
+      filtro esta ativo (primeiro download). Apos qualquer selecao, ele
+      desaparece e Home vai direto para CATEGORIA AR.
+
+      Isso causava inconsistencia: com "Select Bookmark" visivelm Home ia
+      para posicao 0 ("Select Bookmark") e o indice ficava correto.
+      Sem ele, Home ia para posicao 0 (CATEGORIA AR) e o indice ficava
+      1 abaixo do esperado.
+
+      End SEMPRE vai para o ultimo item (ST-Grit-Mateus, posicao fixa)
+      independente do estado. A partir dai, subimos com Up ate o alvo.
+      O resultado e identico com ou sem "Select Bookmark" visivelm:
+
+        Com "Select Bookmark": End=visual 16, Up 15 -> visual 1 = CATEGORIA AR
+        Sem "Select Bookmark": End=visual 15, Up 15 -> visual 0 = CATEGORIA AR
+        Mesmo alvo, mesma quantidade de teclas. ✓
+
+    Returns True se executou, False se nome nao esta em BOOKMARK_ORDER.
+    """
+    if nome not in BOOKMARK_ORDER:
+        logger.warning(f"'{nome}' nao esta em BOOKMARK_ORDER — teclado indisponivel.")
+        return False
+
+    n   = len(BOOKMARK_ORDER)         # 16 itens (sem "Select Bookmark")
+    idx = BOOKMARK_ORDER.index(nome)
+    ups = (n - 1) - idx               # quantas vezes pressionar Up apos End
+
+    # End → ultimo item (ST-Grit - Mateus), sempre consistente.
+    # Enviado 2x: se a primeira tecla for perdida por foco ainda nao
+    # estabelecido logo apos abrir o dropdown, a segunda garante a posicao.
+    # End e idempotente — pressionar 2x nao move nada alem do ultimo item.
+    pyautogui.press("end")
+    pausa(0.15)
+    pyautogui.press("end")
+    pausa(0.3)
+
+    # Up × ups → chega ao item desejado
+    if ups > 0:
+        pyautogui.press("up", presses=ups, interval=0.03)
+    pausa(0.25)
+
+    # Enter → confirma
+    pyautogui.press("enter")
+    logger.info(
+        f"Bookmark '{nome}' selecionado via teclado "
+        f"(End + {ups}x Up, indice {idx}/{n-1})."
+    )
+    return True
+
+
 def aplicar_bookmark(nome_bookmark: str):
+    """
+    Seleciona um bookmark no dropdown do QlikView.
+
+    Estrategia em 3 niveis:
+
+    1. Win32 LB_FINDSTRING (preferido):
+       Busca o item PELO NOME no controle Windows — sem contar posicoes,
+       sem coordenadas, sem OCR. Funciona independente de quantos filtros
+       existam ou em que posicao estejam. Nao precisa atualizar nenhuma lista.
+
+    2. Teclado Home + Down (fallback):
+       Usa BOOKMARK_ORDER para calcular quantas setas descer.
+       Requer que a lista esteja atualizada quando filtros sao adicionados.
+
+    3. Coordenada calibrada (ultimo recurso):
+       Coords.BOOKMARKS — valor fixo de coordinates.py.
+    """
     logger.info(f"Aplicando bookmark: '{nome_bookmark}'")
 
     # Abre o dropdown
     sucesso = clicar_e_validar(Coords.DROPDOWN_BOOKMARK, "Dropdown Bookmark")
     if not sucesso:
         raise RuntimeError("Falha ao abrir dropdown de bookmarks.")
-    pausa(2.0)   # aguarda lista expandir completamente
+    pausa(1.8)   # aguarda lista expandir e foco do teclado estabilizar
 
-    # Estrategia: X fixo + Y via OCR
-    # O dropdown sempre abre na mesma coluna horizontal.
-    # Fixar X evita que o OCR clique na tabela ao fundo.
-    # A regiao cobre APENAS a largura do dropdown (nao a tabela).
-    btn_x, btn_y = Coords.DROPDOWN_BOOKMARK
-    x_dropdown   = btn_x - 14           # centro horizontal do dropdown (≈ 609)
-    regiao_ocr   = (
-        x_dropdown - 90,  # ≈ 519 — inicio da regiao
-        btn_y + 20,       # ≈ 121 — comeca abaixo do botao
-        200,              # largura estreita: so o dropdown
-        420,              # altura cobrindo todos os itens
-    )
+    # 1. Win32 — busca pelo nome diretamente no controle
+    if _selecionar_bookmark_win32(nome_bookmark):
+        pass   # selecionado com sucesso
 
-    achou = clicar_bookmark_por_nome(
-        nome   = nome_bookmark,
-        x_fixo = x_dropdown,
-        regiao = regiao_ocr,
-        timeout = 8.0,
-    )
+    # 2. Clique calculado — Y = BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT
+    #    Independente de foco de teclado, estado anterior do dropdown ou
+    #    presenca do item "Select Bookmark". Funciona desde que BOOKMARK_ORDER
+    #    reflita a ordem correta da lista.
+    elif nome_bookmark in BOOKMARK_ORDER:
+        idx = BOOKMARK_ORDER.index(nome_bookmark)
+        y   = round(BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT)
+        logger.info(
+            f"Selecionando '{nome_bookmark}' via clique calculado "
+            f"(idx={idx}, coordenada=({BOOKMARK_X}, {y}))."
+        )
+        safe_click(BOOKMARK_X, y)
 
-    if not achou:
-        # Fallback: coordenada calibrada
-        logger.warning(f"OCR falhou para '{nome_bookmark}' — usando coordenada calibrada.")
-        bookmark_coords = Coords.BOOKMARKS.get(nome_bookmark)
-        if bookmark_coords is None:
-            raise ValueError(f"Bookmark '{nome_bookmark}' nao mapeado.")
-        safe_click(*bookmark_coords)
+    # 3. Teclado End+Up — fallback se nao estiver em BOOKMARK_ORDER
+    elif _selecionar_bookmark_teclado(nome_bookmark):
+        pass
+
+    # 4. Coordenada calibrada — ultimo recurso
+    else:
+        logger.warning(f"Todos os metodos falharam — usando coordenada calibrada.")
+        bm = Coords.BOOKMARKS.get(nome_bookmark)
+        if bm is None:
+            raise ValueError(
+                f"Bookmark '{nome_bookmark}' nao encontrado. "
+                f"Adicione-o a BOOKMARK_ORDER no config.py."
+            )
+        safe_click(*bm)
 
     aguardar_tela_estavel()
     logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados carregarem...")
@@ -286,10 +442,6 @@ def aplicar_bookmark(nome_bookmark: str):
     aguardar_tela_estavel()
     logger.info(f"✔ Bookmark '{nome_bookmark}' aplicado e tabela pronta.")
 
-
-# ---------------------------------------------------------------------------
-# Dupla seta
-# ---------------------------------------------------------------------------
 
 def clicar_dupla_seta():
     logger.info("Aguardando dupla seta (») ficar visivel...")
@@ -524,7 +676,7 @@ def executar_downloads():
 
     for i, (bloco, bookmark, clicar_seta) in enumerate(DOWNLOADS, start=1):
         logger.info(f"\n{'='*60}")
-        logger.info(f"Download {i}/8 | Bloco: {bloco} | Bookmark: {bookmark}")
+        logger.info(f"Download {i}/{len(DOWNLOADS)} | Bloco: {bloco} | Bookmark: {bookmark}")
         logger.info(f"{'='*60}")
 
         for recovery in range(MAX_RECOVERY + 1):
