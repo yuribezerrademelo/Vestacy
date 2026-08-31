@@ -43,6 +43,10 @@ COORDS = {
 
     # Botão "Exportar" no modal (sempre centralizado na tela) ← CALIBRAR
     "btn_exportar": (1473, 999),
+
+    # Link "02.Faturado" no menu lateral do Power BI ← CALIBRAR se falhar
+    # Usado como fallback quando o OCR não localiza o texto
+    "menu_02_faturado": (153, 643),   
 }
 
 # ============================================================
@@ -273,9 +277,13 @@ def main():
     )
 
     # ARQUIVO 2 — 02.Faturado
+    # Clica diretamente na coordenada calibrada do menu lateral.
+    # OCR removido: o sidebar do Power BI tem fundo escuro e fonte pequena
+    # que o Tesseract nao consegue ler de forma confiavel.
+    # Calibre COORDS["menu_02_faturado"] se o link mudar de posicao.
     print("\n>>> Navegando para '02.Faturado'...")
-    if not clicar_por_texto("02.Faturado"):
-        raise RuntimeError("Não foi possível localizar '02.Faturado' no painel.")
+    pyautogui.click(*COORDS["menu_02_faturado"])
+    print(f"  Clicou em '02.Faturado' ({COORDS['menu_02_faturado']}).")
     aguardar_pagina_carregar()
 
     print("\n>>> Convertendo gráfico para tabela...")

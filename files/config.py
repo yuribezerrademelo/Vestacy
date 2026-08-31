@@ -57,21 +57,19 @@ INICIO_DOWNLOAD_TIMEOUT = 45   # 45s — se o dialogo fechou sem download, reten
 
 # --- Pausa após aplicar bookmark (segundos) ---
 # Garante que os dados da tabela carregaram antes de tentar o export.
-PAUSA_POS_BOOKMARK = 5
+PAUSA_POS_BOOKMARK = 8
 
 # --- Sequência de downloads ---
 # Formato: (bloco_filtro, nome_bookmark, clicar_dupla_seta)
+# Sequencia de downloads.
+# ST - Grit usa fluxo especial via "Relatorios Personalizados" (ver main.py).
+# Os demais seguem o fluxo padrao de bloco → bookmark → export.
 DOWNLOADS = [
-    ("PDV",                    "ST - Grit",             False),
-    ("PDV",                    "ST - Grit - Mateus",    False),
-    ("Tempo",                  "CATEGORIA AR",           False),
-    ("Tempo",                  "CATEGORIA AR - MATEUS",  False),
-    ("Agente de Distribuição", "ST - DBs",                    False),
-    ("Agente de Distribuição", "ST - DBs - Mateus",           False),
-    ("Agente de Distribuição", "Sell Out - DB's - Com CPF",         False),
-    ("Agente de Distribuição", "Sell Out - DB's - Com CPF - Mateus",False),
-    ("Produto",                "Produto",               True),
-    ("Produto",                "Produto - Mateus",      False),
+    ("Relatorios Personalizados", "ST - Grit",                  False),
+    ("Tempo",                     "CATEGORIA AR",                False),
+    ("Agente de Distribuição",    "ST - DBs",                    False),
+    ("Agente de Distribuição",    "Sell Out - DB's - Com CPF",  False),
+    ("Produto",                   "Produto",                     True),
 ]
 # =============================================================================
 # DROPDOWN DE BOOKMARKS — configuração para clique calculado
@@ -84,31 +82,17 @@ DOWNLOADS = [
 # ser recalibrados se o QlikView mudar de layout ou resolução de tela.
 # =============================================================================
 
-# BOOKMARK_ORDER — lista exata do dropdown, na ordem em que aparece.
-# IMPORTANTE: "Select Bookmark" e o item de indice 0 (onde Home aterra).
-# Os bookmarks reais comecam no indice 1.
-# Atualize esta lista sempre que adicionar ou remover bookmarks.
+# BOOKMARK_ORDER — lista EXATA do dropdown, na ordem em que aparece (sem "Select Bookmark").
+# Navegacao End+Up calcula a posicao de cada item automaticamente.
+# Atualizar quando adicionar/remover bookmarks no QlikView.
 BOOKMARK_ORDER = [
-    # "Select Bookmark" NAO entra na lista:
-    # ele so aparece quando nenhum filtro esta ativo.
-    # Apos qualquer selecao, Home vai direto para CATEGORIA AR.
-    # Usamos End+Up para navegar — funciona igual nos dois estados.
-    "CATEGORIA AR",                                   # 0
-    "CATEGORIA AR - MATEUS",                          # 1
-    "OnePage - Aba Agente de Distribuicao",           # 2
-    "OnePage - Aba Agente de Distribuicao - Mateus",  # 3
-    "OnePage - Aba PDV",                              # 4
-    "OnePage - Aba PDV - Mateus",                     # 5
-    "OnePage - Aba Produto",                          # 6
-    "OnePage - Aba Produto - Mateus",                 # 7
-    "Produto",                                        # 8
-    "Produto - Mateus",                               # 9
-    "Sell Out - DB's - Com CPF",                     # 10
-    "Sell Out - DB's - Com CPF - Mateus",            # 11
-    "ST - DBs",                                       # 12
-    "ST - DBs - Mateus",                              # 13
-    "ST - Grit",                                      # 14
-    "ST - Grit - Mateus",                             # 15
+    "CATEGORIA AR",               # 0
+    "OnePage - Aba PDV",          # 1
+    "OnePage - Aba PDV - Mateus", # 2
+    "Produto",                    # 3
+    "Sell Out - DB's - Com CPF",  # 4
+    "ST - DBs",                   # 5
+    "ST - Grit",                  # 6
 ]
 
 # Y da primeira linha de itens do dropdown (pixels da tela)

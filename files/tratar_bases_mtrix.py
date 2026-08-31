@@ -6,75 +6,49 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from files.config import DOWNLOAD_DIR
 
 # ============================================================
-# CONFIGURAÇÕES - ajuste apenas esta seção se necessário
+# CONFIGURAÇÕES — ajuste apenas esta seção se necessário
 # ============================================================
 
-# Pasta onde estão os 8 arquivos exportados da Mtrix
-# Importado do config.py — mesma lógica do download_watcher.py
+# Pasta onde estão os arquivos exportados da Mtrix
 PASTA_BASES = Path(DOWNLOAD_DIR) if DOWNLOAD_DIR else Path.home() / "Downloads"
 
-# Pasta de destino final dos 4 arquivos tratados
+# Pasta de destino final
 PASTA_DESTINO = Path(r"C:\Users\yurib\Downloads\Vestacy\Histórico Mtrix")
 
-# Clientes a serem removidos das bases normais
-CLIENTES_MATEUS = [
-    "ARMAZEM MATEUS LTDA - DB PI",
-    "ARMAZEM MATEUS LTDA - DB MA",
-]
-
-# Coluna de identificação do cliente
-COLUNA_CLIENTE = "Grp. Econômico"
-
-# Pares: base normal -> base Mateus equivalente
-PARES_BASES = {
-    "01.01 - Base Grit":     "01.01 - Base Grit Mateus",
-    "02.01 - Categorias Ar": "02.01 - Categorias Ar MATEUS",
-    "03.01 - Actual Dbs":    "03.01 - Actual Dbs Mateus",
-    "07.01 - Actual Dbs CPF": "07.01 - Actual Dbs CPF Mateus",
-    "05.01 - Produtos":      "05.01 - Produtos Mateus",
-}
-
-# Linhas a apagar APÓS o cabeçalho (índice 0 = primeira linha de dados)
-# Serão apagadas antes de qualquer outro tratamento
+# Linhas em branco a remover logo após o cabeçalho (índice 0 = 1ª linha de dados).
+# Não existe mais merge com base Mateus — só a limpeza das linhas extras.
+# Linhas em branco a remover logo após o cabeçalho.
+# "01.01 - Base Grit" NÃO tem linha em branco — só renomeia e move.
 LINHAS_EXTRAS = {
-    # Bases que têm 1 linha em branco (linha 2 do Excel = índice 0 nos dados)
-    "01.01 - Base Grit":             [0],
-    "01.01 - Base Grit Mateus":      [0],
-    "02.01 - Categorias Ar":         [0],
-    "02.01 - Categorias Ar MATEUS":  [0],
-    "05.01 - Produtos":              [0],
-    "05.01 - Produtos Mateus":       [0],
-    # Bases que têm 4 linhas em branco (linhas 2-5 do Excel = índices 0-3 nos dados)
-    "03.01 - Actual Dbs":            [0, 1, 2, 3],
-    "03.01 - Actual Dbs Mateus":     [0, 1, 2, 3],
-    # Mesmo bloco que 03.01 — verificar se tem 4 linhas em branco
-    "07.01 - Actual Dbs CPF":        [0, 1, 2, 3],
-    "07.01 - Actual Dbs CPF Mateus": [0, 1, 2, 3],
+    "02.01 - Categorias Ar": [0],
+    "05.01 - Produtos":      [0],
+    "03.01 - Actual Dbs":    [0, 1, 2, 3],
+    "07.01 - Actual Dbs CPF":[0, 1, 2, 3],
 }
+
+# Bases a processar (sem versões Mateus separadas — dados já consolidados no filtro)
+BASES = [
+    "01.01 - Base Grit",
+    "02.01 - Categorias Ar",
+    "03.01 - Actual Dbs",
+    "07.01 - Actual Dbs CPF",
+    "05.01 - Produtos",
+]
 
 # ============================================================
 # FUNÇÕES
 # ============================================================
 
-def caminho(nome_base):
+def caminho(nome_base: str) -> Path:
     return PASTA_BASES / f"{nome_base}.xlsx"
 
 
-def celula_para_texto(cell):
-    """
-    Retorna o valor da célula como texto preservando máxima precisão.
-    - Números: sempre com todas as casas decimais reais (sem arredondamento)
-    - Datas: formato DD/MM/AAAA
-    - Texto: valor direto
-    """
+def celula_para_texto(cell) -> str:
+    """Converte célula para texto preservando precisão numérica."""
     from openpyxl.styles.numbers import is_date_format
-
     value = cell.value
-
     if value is None:
         return ""
-
-    # Data
     fmt = cell.number_format or ""
     if is_date_format(fmt):
         if hasattr(value, "strftime"):
@@ -84,104 +58,59 @@ def celula_para_texto(cell):
             return from_excel(value).strftime("%d/%m/%Y")
         except Exception:
             return str(value)
-
-    # Número — preserva máxima precisão, converte para padrão BR
     if isinstance(value, float):
-        texto = f"{value:.15g}"
-        return texto.replace(".", ",")
-
+        return f"{value:.15g}".replace(".", ",")
     if isinstance(value, int):
         return str(value)
-
-    # Texto ou qualquer outro tipo
     return str(value)
 
 
-def carregar_base(nome_base):
-    """Carrega o arquivo Excel preservando máxima precisão numérica."""
+def carregar_base(nome_base: str) -> pd.DataFrame:
+    """Carrega o Excel preservando precisão numérica."""
     arquivo = caminho(nome_base)
     if not arquivo.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {arquivo}")
-
     wb = load_workbook(arquivo, data_only=True)
     ws = wb.active
-
     linhas = list(ws.iter_rows())
     if not linhas:
         raise ValueError(f"Arquivo vazio: {arquivo}")
-
     cabecalho = [cell.value if cell.value is not None else "" for cell in linhas[0]]
-
-    dados = []
-    for row in linhas[1:]:
-        dados.append([celula_para_texto(cell) for cell in row])
-
+    dados = [[celula_para_texto(cell) for cell in row] for row in linhas[1:]]
     df = pd.DataFrame(dados, columns=cabecalho)
-    print(f"  Carregado '{nome_base}.xlsx' -> {len(df)} linhas")
+    print(f"  Carregado '{nome_base}.xlsx' → {len(df)} linhas")
     return df
 
 
-def remover_linhas_extras(df, nome_base):
+def remover_linhas_extras(df: pd.DataFrame, nome_base: str) -> pd.DataFrame:
     """Remove linhas em branco logo abaixo do cabeçalho."""
     indices = LINHAS_EXTRAS.get(nome_base, [])
     if indices:
-        indices_validos = [i for i in indices if i < len(df)]
-        df = df.drop(index=indices_validos).reset_index(drop=True)
-        print(f"  Removidas {len(indices_validos)} linha(s) extras em '{nome_base}'")
+        validos = [i for i in indices if i < len(df)]
+        df = df.drop(index=validos).reset_index(drop=True)
+        print(f"  Removidas {len(validos)} linha(s) extras em '{nome_base}'")
     return df
 
 
-def remover_clientes_mateus(df, nome_base):
-    """Remove todas as linhas dos 2 clientes Mateus."""
-    if COLUNA_CLIENTE not in df.columns:
-        print(f"  AVISO: coluna '{COLUNA_CLIENTE}' não encontrada em '{nome_base}'. Pulando remoção.")
-        return df
-    antes = len(df)
-    df = df[~df[COLUNA_CLIENTE].isin(CLIENTES_MATEUS)].reset_index(drop=True)
-    removidas = antes - len(df)
-    print(f"  Removidas {removidas} linha(s) dos clientes Mateus em '{nome_base}'")
-    return df
-
-
-def mesclar_base_mateus(df_normal, nome_mateus):
-    """Carrega a base Mateus, remove linhas extras e appenda na base normal."""
-    df_mateus = carregar_base(nome_mateus)
-    df_mateus = remover_linhas_extras(df_mateus, nome_mateus)
-    df_resultado = pd.concat([df_normal, df_mateus], ignore_index=True)
-    print(f"  Mesclado '{nome_mateus}' -> total agora: {len(df_resultado)} linhas")
-    return df_resultado
-
-
-def salvar_base(df, nome_base):
-    """Salva o DataFrame com todos os valores como texto puro."""
+def salvar_base(df: pd.DataFrame, nome_base: str):
+    """Salva o DataFrame como texto puro, preservando o arquivo original."""
     arquivo = caminho(nome_base)
-
     wb = load_workbook(arquivo)
     ws = wb.active
-
     ws.delete_rows(1, ws.max_row)
-
     for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
         for c_idx, value in enumerate(row, start=1):
-            cell = ws.cell(row=r_idx, column=c_idx, value=str(value) if pd.notna(value) else "")
+            cell = ws.cell(row=r_idx, column=c_idx,
+                           value=str(value) if pd.notna(value) else "")
             cell.data_type = "s"
-
     wb.save(arquivo)
     print(f"  Salvo '{nome_base}.xlsx' com {len(df)} linhas")
 
 
-def deletar_base_mateus(nome_mateus):
-    """Apaga o arquivo Mateus após a mesclagem."""
-    arquivo = caminho(nome_mateus)
-    if arquivo.exists():
-        arquivo.unlink()
-        print(f"  Arquivo '{nome_mateus}.xlsx' deletado")
-
-
-def mover_para_destino(nome_base):
-    """Move o arquivo tratado para a pasta de destino, substituindo se já existir."""
+def mover_para_destino(nome_base: str):
+    """Move o arquivo tratado para a pasta de destino."""
     PASTA_DESTINO.mkdir(parents=True, exist_ok=True)
-    origem = caminho(nome_base)
+    origem  = caminho(nome_base)
     destino = PASTA_DESTINO / f"{nome_base}.xlsx"
     shutil.move(str(origem), str(destino))
     print(f"  Movido para: {destino}\n")
@@ -196,32 +125,22 @@ def main():
     print("TRATAMENTO DAS BASES MTRIX")
     print("=" * 60)
 
-    for nome_normal, nome_mateus in PARES_BASES.items():
-        print(f"\n>>> Processando: '{nome_normal}'")
+    for nome_base in BASES:
+        print(f"\n>>> Processando: '{nome_base}'")
 
-        # 1. Carrega a base normal
-        df = carregar_base(nome_normal)
+        if nome_base not in LINHAS_EXTRAS:
+            # Nenhuma linha extra para remover — move diretamente (sem load/save)
+            print(f"  Sem tratamento necessário — movendo direto para destino...")
+            mover_para_destino(nome_base)
+            continue
 
-        # 2. Remove linhas extras (linhas em branco abaixo do cabeçalho)
-        df = remover_linhas_extras(df, nome_normal)
-
-        # 3. Remove os clientes Mateus da base normal
-        df = remover_clientes_mateus(df, nome_normal)
-
-        # 4. Carrega a base Mateus, remove linhas extras dela e mescla
-        df = mesclar_base_mateus(df, nome_mateus)
-
-        # 5. Sobrescreve a base normal com o resultado final
-        salvar_base(df, nome_normal)
-
-        # 6. Deleta o arquivo Mateus
-        deletar_base_mateus(nome_mateus)
-
-        # 7. Move o arquivo tratado para a pasta de destino
-        mover_para_destino(nome_normal)
+        df = carregar_base(nome_base)
+        df = remover_linhas_extras(df, nome_base)
+        salvar_base(df, nome_base)
+        mover_para_destino(nome_base)
 
     print("=" * 60)
-    print("Processo concluído! 4 bases salvas em:")
+    print(f"Concluído! {len(BASES)} bases salvas em:")
     print(f"  {PASTA_DESTINO}")
     print("=" * 60)
 

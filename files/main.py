@@ -150,14 +150,25 @@ def abrir_chrome_e_login():
     logger.info("=== ETAPA 2: Login ===")
     # Credenciais ja salvas no Chrome — apenas clica em Entrar
     safe_click(*Coords.LOGIN_BOTAO_ENTRAR)
-    logger.info("Botao Entrar clicado — aguardando selecao de ambiente...")
-    aguardar_tela_estavel(timeout=20)
-    pausa(4)
+    logger.info("Botao Entrar clicado — aguardando pagina de selecao de ambiente...")
+
+    # Aguarda a pagina de selecao de ambiente carregar completamente
+    pausa(3)
+    aguardar_tela_estavel(timeout=30)
+    pausa(3)   # margem extra para elementos da pagina renderizarem
 
     logger.info("=== ETAPA 3: Selecionar ambiente ===")
     safe_click(*Coords.LOGIN_AMBIENTE)
-    logger.info(f"Ambiente '{AMBIENTE_NOME}' selecionado.")
-    pausa(6)
+    logger.info(f"Ambiente '{AMBIENTE_NOME}' selecionado. Aguardando QlikView inicializar...")
+
+    # O QlikView pode levar de 20 a 60 segundos para inicializar completamente.
+    # Aguarda estabilidade multiplas vezes para garantir que o carregamento terminou.
+    pausa(8)
+    aguardar_tela_estavel(timeout=90)
+    pausa(5)
+    aguardar_tela_estavel(timeout=30)
+    pausa(3)
+    logger.info("QlikView inicializado.")
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +177,17 @@ def abrir_chrome_e_login():
 
 def focar_qlikview_e_navegar():
     logger.info("=== ETAPA 4: Navegando no QlikView ===")
-    pausa(2)
 
+    # Clica no centro para garantir foco na janela do QlikView
+    pausa(3)
     safe_click(*Coords.QLIKVIEW_CENTER)
+    pausa(2)
     aguardar_tela_estavel()
 
     sucesso = clicar_e_validar(Coords.ABA_GRAFICOS_RELATORIOS, "Graficos | Relatorios")
     if not sucesso:
         raise RuntimeError("Nao foi possivel navegar para Graficos | Relatorios.")
+    pausa(2)
     aguardar_tela_estavel()
 
 
@@ -182,10 +196,11 @@ def focar_qlikview_e_navegar():
 # ---------------------------------------------------------------------------
 
 BLOCOS = {
-    "PDV":                    Coords.BLOCO_PDV,
-    "Tempo":                  Coords.BLOCO_TEMPO,
-    "Agente de Distribuição": Coords.BLOCO_AGENTE_DISTRIB,
-    "Produto":                Coords.BLOCO_PRODUTO,
+    "PDV":                      Coords.BLOCO_PDV,
+    "Tempo":                    Coords.BLOCO_TEMPO,
+    "Agente de Distribuição":   Coords.BLOCO_AGENTE_DISTRIB,
+    "Produto":                  Coords.BLOCO_PRODUTO,
+    # Relatórios Personalizados é tratado separadamente em _navegar_relat_pdv()
 }
 
 _bloco_atual = None
@@ -257,72 +272,6 @@ def _calcular_y_bookmark(nome: str):
         return None
 
 
-def _selecionar_bookmark_win32(nome: str) -> bool:
-    """
-    Seleciona um bookmark usando a API do Windows para buscar pelo texto.
-
-    Quando o dropdown esta aberto, o QlikView usa um controle Windows
-    padrao (ListBox ou ComboLBox). Enviamos LB_FINDSTRING para localizar
-    o item pelo nome exato e LB_SETCURSEL para selecioná-lo — sem contar
-    posicoes, sem coordenadas, sem OCR.
-
-    Returns True se encontrou e selecionou, False caso contrário.
-    """
-    try:
-        import win32gui
-        import win32con
-        import win32api
-    except ImportError:
-        logger.debug("pywin32 nao instalado — _selecionar_bookmark_win32 indisponivel.")
-        return False
-
-    LB_FINDSTRING  = 0x018F
-    LB_SETCURSEL   = 0x0186
-    LB_ERR         = -1
-
-    # Procura o controle de lista que o QlikView abriu
-    # (pode ser ListBox, ComboLBox ou LISTBOX dependendo da versao)
-    CLASSES_LISTA = {"ListBox", "ComboLBox", "LISTBOX", "listbox"}
-
-    hwnd_lista = None
-
-    def _enum_all_windows(hwnd, _):
-        nonlocal hwnd_lista
-        if hwnd_lista:
-            return
-        try:
-            cls = win32gui.GetClassName(hwnd)
-            if cls in CLASSES_LISTA and win32gui.IsWindowVisible(hwnd):
-                hwnd_lista = hwnd
-        except Exception:
-            pass
-
-    # Enumera janelas de nivel superior E filhas abertas
-    win32gui.EnumWindows(_enum_all_windows, None)
-
-    if hwnd_lista is None:
-        logger.debug("Controle ListBox do dropdown nao encontrado via EnumWindows.")
-        return False
-
-    # Busca o item pelo texto (case-insensitive, busca por inicio)
-    # LB_FINDSTRING: -1 = buscar a partir do inicio
-    idx = win32api.SendMessage(hwnd_lista, LB_FINDSTRING, -1, nome)
-
-    if idx == LB_ERR:
-        logger.warning(f"Item '{nome}' nao encontrado no ListBox via Win32.")
-        return False
-
-    # Seleciona o item encontrado
-    win32api.SendMessage(hwnd_lista, LB_SETCURSEL, idx, 0)
-
-    # Confirma com Enter para que o QlikView processe a selecao
-    pausa(0.1)
-    pyautogui.press("enter")
-
-    logger.info(f"Bookmark '{nome}' selecionado via Win32 (LB_FINDSTRING idx={idx}).")
-    return True
-
-
 def _selecionar_bookmark_teclado(nome: str) -> bool:
     """
     Seleciona um bookmark navegando com teclado: End + N x Up + Enter.
@@ -355,21 +304,25 @@ def _selecionar_bookmark_teclado(nome: str) -> bool:
     idx = BOOKMARK_ORDER.index(nome)
     ups = (n - 1) - idx               # quantas vezes pressionar Up apos End
 
-    # End → ultimo item (ST-Grit - Mateus), sempre consistente.
-    # Enviado 2x: se a primeira tecla for perdida por foco ainda nao
-    # estabelecido logo apos abrir o dropdown, a segunda garante a posicao.
-    # End e idempotente — pressionar 2x nao move nada alem do ultimo item.
+    # Garante que o foco esta NA LISTA do dropdown, nao no botao.
+    # Sem este Down inicial o End/Enter podem agir no botao e nao na lista,
+    # causando o dropdown ficar aberto sem selecionar nada.
+    pyautogui.press("down")
+    pausa(0.25)
+
+    # End -> ultimo item (ST-Grit), sempre consistente.
+    # Enviado 2x como seguranca extra.
     pyautogui.press("end")
     pausa(0.15)
     pyautogui.press("end")
     pausa(0.3)
 
-    # Up × ups → chega ao item desejado
+    # Up × ups -> chega ao item desejado
     if ups > 0:
         pyautogui.press("up", presses=ups, interval=0.03)
     pausa(0.25)
 
-    # Enter → confirma
+    # Enter -> confirma
     pyautogui.press("enter")
     logger.info(
         f"Bookmark '{nome}' selecionado via teclado "
@@ -384,61 +337,47 @@ def aplicar_bookmark(nome_bookmark: str):
 
     Estrategia em 3 niveis:
 
-    1. Win32 LB_FINDSTRING (preferido):
-       Busca o item PELO NOME no controle Windows — sem contar posicoes,
-       sem coordenadas, sem OCR. Funciona independente de quantos filtros
-       existam ou em que posicao estejam. Nao precisa atualizar nenhuma lista.
+    1. Clique calculado: Y = BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT.
+       Robusto, sem dependencia de foco de teclado ou estado do dropdown.
 
-    2. Teclado Home + Down (fallback):
-       Usa BOOKMARK_ORDER para calcular quantas setas descer.
-       Requer que a lista esteja atualizada quando filtros sao adicionados.
+    2. Teclado End+Up: fallback se bookmark nao estiver em BOOKMARK_ORDER.
 
-    3. Coordenada calibrada (ultimo recurso):
-       Coords.BOOKMARKS — valor fixo de coordinates.py.
+    3. Coordenada calibrada: ultimo recurso (coordinates.py).
     """
     logger.info(f"Aplicando bookmark: '{nome_bookmark}'")
 
-    # Abre o dropdown
-    sucesso = clicar_e_validar(Coords.DROPDOWN_BOOKMARK, "Dropdown Bookmark")
-    if not sucesso:
-        raise RuntimeError("Falha ao abrir dropdown de bookmarks.")
-    pausa(1.8)   # aguarda lista expandir e foco do teclado estabilizar
+    # Garante foco no QlikView antes de qualquer interacao com o dropdown
+    safe_click(*Coords.QLIKVIEW_CENTER)
+    pausa(0.8)
 
-    # 1. Win32 — busca pelo nome diretamente no controle
-    if _selecionar_bookmark_win32(nome_bookmark):
-        pass   # selecionado com sucesso
+    # Abre o dropdown com safe_click (nao usa clicar_e_validar porque
+    # a verificacao de brilho do botao falha ao abrir lista — o botao
+    # nao muda de cor quando a lista expande, causando RuntimeError
+    # desnecessario e ativando a recuperacao completa da navegacao).
+    logger.info("Abrindo dropdown de bookmarks...")
+    safe_click(*Coords.DROPDOWN_BOOKMARK)
+    pausa(2.0)   # aguarda a lista expandir completamente   # aguarda lista expandir e foco do teclado estabilizar
 
-    # 2. Clique calculado — Y = BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT
-    #    Independente de foco de teclado, estado anterior do dropdown ou
-    #    presenca do item "Select Bookmark". Funciona desde que BOOKMARK_ORDER
-    #    reflita a ordem correta da lista.
-    elif nome_bookmark in BOOKMARK_ORDER:
-        idx = BOOKMARK_ORDER.index(nome_bookmark)
-        y   = round(BOOKMARK_Y_FIRST + idx * BOOKMARK_ITEM_HEIGHT)
-        logger.info(
-            f"Selecionando '{nome_bookmark}' via clique calculado "
-            f"(idx={idx}, coordenada=({BOOKMARK_X}, {y}))."
-        )
-        safe_click(BOOKMARK_X, y)
-
-    # 3. Teclado End+Up — fallback se nao estiver em BOOKMARK_ORDER
-    elif _selecionar_bookmark_teclado(nome_bookmark):
-        pass
-
-    # 4. Coordenada calibrada — ultimo recurso
+    # Teclado End+Up para todos os itens.
+    # End vai sempre ao ultimo item da lista (ST-Grit-Mateus),
+    # independente do scroll ou do item selecionado anteriormente.
+    # Subindo N vezes chega ao item correto sem depender de Y ou posicao visual.
+    if nome_bookmark in BOOKMARK_ORDER:
+        _selecionar_bookmark_teclado(nome_bookmark)
     else:
-        logger.warning(f"Todos os metodos falharam — usando coordenada calibrada.")
+        logger.warning(f"'{nome_bookmark}' nao em BOOKMARK_ORDER — coordenada calibrada.")
         bm = Coords.BOOKMARKS.get(nome_bookmark)
         if bm is None:
-            raise ValueError(
-                f"Bookmark '{nome_bookmark}' nao encontrado. "
-                f"Adicione-o a BOOKMARK_ORDER no config.py."
-            )
+            raise ValueError(f"'{nome_bookmark}' nao encontrado.")
         safe_click(*bm)
 
-    aguardar_tela_estavel()
-    logger.info(f"Aguardando {PAUSA_POS_BOOKMARK}s para dados carregarem...")
+    # Espera dupla: aguarda a tabela recarregar completamente após o bookmark.
+    # aguardar_tela_estavel pode retornar rápido se a página ficar estável
+    # momentaneamente no meio do carregamento — a pausa extra cobre isso.
+    logger.info(f"Aguardando tabela recarregar apos bookmark...")
     pausa(PAUSA_POS_BOOKMARK)
+    aguardar_tela_estavel()
+    pausa(4.0)            # segunda espera: garante que os dados terminaram de carregar
     aguardar_tela_estavel()
     logger.info(f"✔ Bookmark '{nome_bookmark}' aplicado e tabela pronta.")
 
@@ -457,27 +396,147 @@ def clicar_dupla_seta():
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Relatórios Personalizados — fluxo especial ST - Grit
+# ---------------------------------------------------------------------------
+
+def _navegar_relat_pdv():
+    """
+    Navega para Relatórios Personalizados -> PDV.
+
+    Usa safe_click (sem verificacao de brilho) porque o bloco
+    Relatorios Personalizados tem visual diferente dos demais.
+    Pausa generosa entre os dois cliques: a view precisa carregar
+    completamente antes de clicar em PDV, caso contrário o clique
+    cai num bloco diferente da tela principal (ex: Forca de Vendas do AD).
+    """
+    global _bloco_atual
+
+    # Passo 1: clica no bloco e aguarda a transicao completa da view.
+    # Tenta até 3 vezes caso o clique não registre.
+    logger.info("Clicando em Relatorios Personalizados...")
+    for tentativa_bloco in range(1, 4):
+        safe_click(*Coords.BLOCO_RELATORIOS_PERSONALIZADOS)
+        pausa(6.0)           # espera generosa para a view carregar
+        aguardar_tela_estavel()
+        pausa(2.0)
+
+        # Verifica se a view de Relatorios Personalizados ficou ativa
+        # (brilho abaixo de 160 = bloco ativado / destacado)
+        frame   = _capturar_tela()
+        bx, by  = Coords.BLOCO_RELATORIOS_PERSONALIZADOS
+        recorte = frame[by-20:by+20, bx-20:bx+20]
+        brilho  = float(recorte.mean())
+        logger.info(f"Brilho Relatorios Personalizados (tentativa {tentativa_bloco}): {brilho:.1f}")
+        if brilho < 180:   # threshold mais alto — visual diferente dos outros blocos
+            logger.info("Relatorios Personalizados confirmado como ativo.")
+            break
+        logger.warning(f"Bloco pode nao ter ativado (brilho={brilho:.1f}). Retentando...")
+    else:
+        logger.warning("Nao foi possivel confirmar Relatorios Personalizados — prosseguindo mesmo assim.")
+
+    # Aguarda o conteúdo da view carregar completamente antes de clicar em PDV.
+    # O QlikView pode ter pausas no meio do carregamento que enganam o
+    # aguardar_tela_estavel() — por isso usamos duas verificações consecutivas
+    # com pausa generosa entre elas.
+    logger.info("Aguardando view de Relatorios Personalizados carregar completamente...")
+    pausa(5.0)
+    aguardar_tela_estavel(timeout=60)
+    pausa(4.0)                          # segunda espera: garante que o carregamento terminou
+    aguardar_tela_estavel(timeout=30)
+    pausa(2.0)
+
+    # Passo 2: clica em PDV dentro da view ja carregada.
+    logger.info("Clicando em PDV dentro de Relatorios Personalizados...")
+    safe_click(*Coords.RELAT_PERSONALIZADOS_PDV)
+
+    pausa(6.0)
+    aguardar_tela_estavel(timeout=60)
+    pausa(3.0)
+    aguardar_tela_estavel(timeout=30)
+    pausa(2.0)
+
+    logger.info("Navegado para Relatorios Personalizados — PDV.")
+    _bloco_atual = "Relatorios Personalizados"
+
+
+def _preparar_tabela_relat_pdv():
+    """
+    Prepara a tabela do Relatório PDV para exportação.
+    1. Aguarda tabela carregar completamente.
+    2. Arrasta 'Cód. Cliente' -> aguarda tabela recarregar.
+    3. Arrasta 'Ano/Mês (Num)' -> aguarda tabela recarregar.
+    4. Right-click em 'Ano/Mês (Num)' -> Collapse All.
+    """
+    # Aguarda a tabela carregar os dados ANTES de qualquer drag.
+    # Após aplicar o bookmark, o Relatórios Personalizados PDV pode levar
+    # mais tempo que as views normais. Duas verificações consecutivas
+    # garantem que não é uma pausa falsa no meio do carregamento.
+    logger.info("Aguardando tabela PDV carregar dados antes de reposicionar colunas...")
+    pausa(4.0)
+    aguardar_tela_estavel(timeout=120)
+    pausa(4.0)
+    aguardar_tela_estavel(timeout=60)
+    pausa(2.0)
+    logger.info("Tabela estavel. Iniciando reposicionamento de colunas...")
+    pyautogui.moveTo(*Coords.HEADER_COD_CLIENTE, duration=0.6)
+    pausa(0.5)
+    pyautogui.dragTo(*Coords.HEADER_COD_CLIENTE_DESTINO, duration=1.0, button="left")
+    pausa(1.0)
+
+    # Aguarda tabela recarregar completamente após o drag
+    aguardar_tela_estavel()
+    pausa(2.0)   # margem extra para o QlikView processar a mudança de layout
+    aguardar_tela_estavel()
+    logger.info("'Cod. Cliente' reposicionado.")
+
+    # ── Drag 2: Ano/Mês (Num) ────────────────────────────────────────────────
+    logger.info("Arrastando 'Ano/Mes (Num)'...")
+    pyautogui.moveTo(*Coords.HEADER_ANO_MES, duration=0.6)
+    pausa(0.5)
+    pyautogui.dragTo(*Coords.HEADER_ANO_MES_DESTINO, duration=1.0, button="left")
+    pausa(1.0)
+
+    # Aguarda tabela recarregar completamente após o drag
+    aguardar_tela_estavel()
+    pausa(2.0)   # margem extra
+    aguardar_tela_estavel()
+    logger.info("'Ano/Mes (Num)' reposicionado.")
+
+    # ── Collapse All ─────────────────────────────────────────────────────────
+    logger.info("Executando Collapse All em 'Ano/Mes (Num)'...")
+    pyautogui.rightClick(*Coords.HEADER_ANO_MES_FINAL)
+    pausa(0.8)   # aguarda o menu de contexto abrir completamente
+    safe_click(*Coords.MENU_COLLAPSE_ALL)
+
+    aguardar_tela_estavel()
+    pausa(1.5)
+    aguardar_tela_estavel()
+    logger.info("Tabela preparada — colunas desnecessarias ocultadas.")
+
+
 # Export Excel — 3 cenarios tratados explicitamente
 # ---------------------------------------------------------------------------
 #
 # Cenario 1 (normal):
-#   Caixa "Exporting..." aparece → processa → fecha → Chrome abre nova aba
-#   → download inicia → arquivo aparece em Downloads
+#   Caixa "Exporting..." aparece -> processa -> fecha -> Chrome abre nova aba
+#   -> download inicia -> arquivo aparece em Downloads
 #
 # Cenario 2 (falha silenciosa):
-#   Caixa "Exporting..." aparece → fecha SEM abrir nova aba → sem download
-#   → deve clicar no botao de export novamente
+#   Caixa "Exporting..." aparece -> fecha SEM abrir nova aba -> sem download
+#   -> deve clicar no botao de export novamente
 #
 # Cenario 3 (press here):
 #   Caixa mostra "content opened in another window / press here"
-#   → clicar no link "press here" → nova aba abre → download inicia
+#   -> clicar no link "press here" -> nova aba abre -> download inicia
 # ---------------------------------------------------------------------------
 
 BOTAO_EXPORT_POR_BLOCO = {
-    "PDV":                    lambda: Coords.EXPORT_PDV,
-    "Produto":                lambda: Coords.EXPORT_PRODUTO,
-    "Tempo":                  lambda: Coords.EXPORT_TEMPO_AGENTE,
-    "Agente de Distribuição": lambda: Coords.EXPORT_TEMPO_AGENTE,
+    "PDV":                       lambda: Coords.EXPORT_PDV,
+    "Produto":                   lambda: Coords.EXPORT_PRODUTO,
+    "Tempo":                     lambda: Coords.EXPORT_TEMPO_AGENTE,
+    "Agente de Distribuição":    lambda: Coords.EXPORT_TEMPO_AGENTE,
+    "Relatorios Personalizados": lambda: Coords.EXPORT_RELAT_PDV,
 }
 
 MAX_TENTATIVAS_EXPORT    = 3
@@ -532,10 +591,10 @@ def _monitorar_export(before: set, download_dir: Path) -> Path:
     Monitora o resultado do clique no botao export.
 
     Cenario 1 (normal):
-      Dialogo "Exporting..." processa → Chrome abre nova aba → arquivo aparece.
+      Dialogo "Exporting..." processa -> Chrome abre nova aba -> arquivo aparece.
 
     Cenario 2 (falha silenciosa):
-      Dialogo fecha sem download → retorna None para retentar.
+      Dialogo fecha sem download -> retorna None para retentar.
     """
     ref_dialogo      = _capturar_tela()
     dialog_fechou_em = None
@@ -588,7 +647,7 @@ def _monitorar_export(before: set, download_dir: Path) -> Path:
             if tempo_desde_fechou >= ESPERA_APOS_DIALOG_FECHAR:
                 logger.warning(
                     f"Dialogo fechou ha {tempo_desde_fechou:.0f}s sem download "
-                    f"→ vai retentar o clique no export."
+                    f"-> vai retentar o clique no export."
                 )
                 return None
 
@@ -681,15 +740,22 @@ def executar_downloads():
 
         for recovery in range(MAX_RECOVERY + 1):
             try:
-                selecionar_bloco(bloco)
-                aplicar_bookmark(bookmark)
-
-                if clicar_seta:
-                    clicar_dupla_seta()
+                if bloco == "Relatorios Personalizados":
+                    # Fluxo especial: ST - Grit via Relatorios Personalizados.
+                    # Ordem obrigatoria: navegar -> aguardar -> bookmark -> preparar.
+                    _navegar_relat_pdv()
+                    aplicar_bookmark(bookmark)
+                    _preparar_tabela_relat_pdv()
+                else:
+                    # Fluxo padrao
+                    selecionar_bloco(bloco)
+                    aplicar_bookmark(bookmark)
+                    if clicar_seta:
+                        clicar_dupla_seta()
 
                 arquivo = exportar_excel(bookmark, bloco)
                 arquivos.append(arquivo)
-                logger.info(f"✅ Download {i}/8 concluido: {arquivo.name}\n")
+                logger.info(f"✅ Download {i}/{len(DOWNLOADS)} concluido: {arquivo.name}\n")
                 pausa(3)   # deixa QlikView estabilizar apos download
                 break
 
@@ -699,7 +765,7 @@ def executar_downloads():
 
                 if recovery < MAX_RECOVERY:
                     logger.warning(
-                        f"⚠ Falha no download {i}/8 ({bookmark}): {e}\n"
+                        f"⚠ Falha no download {i}/{len(DOWNLOADS)} ({bookmark}): {e}\n"
                         f"   Recuperando (tentativa {recovery + 1}/{MAX_RECOVERY})..."
                     )
                     if not _recuperar_navegacao():
@@ -707,7 +773,7 @@ def executar_downloads():
                         raise
                     pausa(3)
                 else:
-                    logger.error(f"❌ Download {i}/8 falhou apos {MAX_RECOVERY} recuperacoes: {e}")
+                    logger.error(f"❌ Download {i}/{len(DOWNLOADS)} falhou apos {MAX_RECOVERY} recuperacoes: {e}")
                     logger.error(f"Screenshot: {screenshot}")
                     raise
 

@@ -13,17 +13,13 @@ logger = logging.getLogger(__name__)
 EXTENSOES_TEMP = {".crdownload", ".tmp", ".part", ".download"}
 
 # Renomeação: bookmark → nome final do arquivo (sem extensão)
+# Mapeamento bookmark → nome final do arquivo (sem versoes Mateus separadas)
 NOMES_ARQUIVO = {
-    "ST - Grit":             "01.01 - Base Grit",
-    "ST - Grit - Mateus":    "01.01 - Base Grit Mateus",
-    "CATEGORIA AR":          "02.01 - Categorias Ar",
-    "CATEGORIA AR - MATEUS": "02.01 - Categorias Ar Mateus",
-    "ST - DBs":                    "03.01 - Actual Dbs",
-    "ST - DBs - Mateus":           "03.01 - Actual Dbs Mateus",
-    "Sell Out - DB's - Com CPF":         "07.01 - Actual Dbs CPF",
-    "Sell Out - DB's - Com CPF - Mateus":"07.01 - Actual Dbs CPF Mateus",
-    "Produto":               "05.01 - Produtos",
-    "Produto - Mateus":      "05.01 - Produtos Mateus",
+    "ST - Grit":                  "01.01 - Base Grit",
+    "CATEGORIA AR":               "02.01 - Categorias Ar",
+    "ST - DBs":                   "03.01 - Actual Dbs",
+    "Sell Out - DB's - Com CPF": "07.01 - Actual Dbs CPF",
+    "Produto":                    "05.01 - Produtos",
 }
 
 

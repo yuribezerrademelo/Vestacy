@@ -49,17 +49,14 @@ class Coords:
     # -------------------------------------------------------------------------
     # Posições de cada bookmark dentro da lista dropdown
     # -------------------------------------------------------------------------
+    # Coordenadas de fallback: usadas se o teclado (End+Up) falhar.
+    # Recalibrar com calibrate_manual.py se as posições mudarem.
     BOOKMARKS = {
-        "ST - Grit":             (609, 411),
-        "ST - Grit - Mateus":    (609, 411),
-        "CATEGORIA AR":          (609, 143),
-        "CATEGORIA AR - MATEUS": (609, 170),
-        "ST - DBs":                    (609, 337),
-        "ST - DBs - Mateus":           (609, 362),
-        "Sell Out - DB's - Com CPF":         (609, 362),   # ← CALIBRAR se teclado falhar
-        "Sell Out - DB's - Com CPF - Mateus":(609, 362),   # ← CALIBRAR se teclado falhar
-        "Produto":               (609, 291),
-        "Produto - Mateus":      (609, 314),
+        "ST - Grit":                  (609, 411),   # ← CALIBRAR
+        "CATEGORIA AR":               (609, 143),
+        "ST - DBs":                   (609, 337),
+        "Sell Out - DB's - Com CPF": (609, 362),   # ← CALIBRAR
+        "Produto":                    (609, 291),
     }
 
     # -------------------------------------------------------------------------
@@ -88,4 +85,28 @@ class Coords:
     # ← CALIBRAR: provoque os diálogos manualmente e use calibrate_manual.py
     # -------------------------------------------------------------------------
     LINK_PRESS_HERE = (175, 422)   # ← CALIBRAR
+    # -------------------------------------------------------------------------
+    # Relatórios Personalizados — fluxo exclusivo do bookmark ST - Grit
+    #
+    # ← CALIBRAR todos os pontos abaixo com calibrate_manual.py
+    # -------------------------------------------------------------------------
+
+    # Bloco "Relatórios Personalizados" na barra de blocos
+    BLOCO_RELATORIOS_PERSONALIZADOS = (945, 259)   
+    # Botão "PDV" dentro da view de Relatórios Personalizados
+    RELAT_PERSONALIZADOS_PDV        = (426, 469)   
+    # Cabeçalho "Cód. Cliente" (posição original antes do drag)
+    HEADER_COD_CLIENTE              = (553, 572)   
+    # Destino do drag de "Cód. Cliente"
+    HEADER_COD_CLIENTE_DESTINO      = (339, 572)   
+    # Cabeçalho "Ano/Mês (Num)" (após o drag de Cód. Cliente)
+    HEADER_ANO_MES                  = (887, 572)   
+    # Destino do drag de "Ano/Mês (Num)"
+    HEADER_ANO_MES_DESTINO          = (430, 572)   
+    # Posição para right-click em "Ano/Mês (Num)" (após os dois drags)
+    HEADER_ANO_MES_FINAL            = (430, 572)   
+    # "Collapse all" no menu de contexto do right-click
+    MENU_COLLAPSE_ALL               = (464, 659)   
+    # Botão de exportar Excel na view de Relatórios Personalizados → PDV
+    EXPORT_RELAT_PDV                = (975, 548)   
     DIALOGO_OK      = (1909, 695)   # ← CALIBRAR
