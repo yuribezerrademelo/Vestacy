@@ -86,13 +86,12 @@ DOWNLOADS = [
 # Navegacao End+Up calcula a posicao de cada item automaticamente.
 # Atualizar quando adicionar/remover bookmarks no QlikView.
 BOOKMARK_ORDER = [
-    "CATEGORIA AR",               # 0
-    "OnePage - Aba PDV",          # 1
-    "OnePage - Aba PDV - Mateus", # 2
-    "Produto",                    # 3
-    "Sell Out - DB's - Com CPF",  # 4
-    "ST - DBs",                   # 5
-    "ST - Grit",                  # 6
+    "CATEGORIA AR",              # 0
+    "OnePage - PDV",             # 1   (era "OnePage - Aba PDV")
+    "Produto",                   # 2   (era 3)
+    "Sell Out - DB's - Com CPF", # 3   (era 4)
+    "ST - DBs",                  # 4   (era 5)
+    "ST - Grit",                 # 5   (era 6)
 ]
 
 # Y da primeira linha de itens do dropdown (pixels da tela)

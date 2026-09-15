@@ -786,6 +786,7 @@ def executar_downloads():
 
 def main():
     logger.info("╔══════════════════════════════════════╗")
+    
     logger.info("║   Automacao Mtrix - Iniciando        ║")
     logger.info("╚══════════════════════════════════════╝")
 
